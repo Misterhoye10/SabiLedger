@@ -1,0 +1,10 @@
+{
+  "description": "Manage sales, customer debts, and payments with AI-powered notebook scanning and voice entry, built for informal merchants and WhatsApp sellers.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
