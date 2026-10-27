@@ -128,7 +128,7 @@ function ThemeToggle({ theme, toggleTheme }: { theme: 'light' | 'dark'; toggleTh
 }
 
 /* ==========================================================================
-   Auth Modal (Auth Comes First)
+   Auth Modal (Auth Comes First - Professional Real Merchant Onboarding)
    ========================================================================== */
 function AuthModal({
   isOpen,
@@ -146,11 +146,13 @@ function AuthModal({
   const [password, setPassword] = useState('')
   const [merchantName, setMerchantName] = useState('')
   const [shopName, setShopName] = useState('')
+  const [phone, setPhone] = useState('')
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
 
   useEffect(() => {
     setTab(initialTab)
+    setErrorMsg('')
   }, [initialTab, isOpen])
 
   if (!isOpen) return null
@@ -163,6 +165,8 @@ function AuthModal({
       if (res.user) {
         onSuccess(res.user)
         onClose()
+      } else if (res.error) {
+        setErrorMsg(res.error.message)
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Google authentication failed')
@@ -200,7 +204,7 @@ function AuthModal({
           setLoading(false)
           return
         }
-        const res = await signUpWithEmail(email, password, merchantName, shopName)
+        const res = await signUpWithEmail(email, password, merchantName, shopName, phone)
         if (res.user) {
           onSuccess(res.user)
           onClose()
@@ -241,7 +245,7 @@ function AuthModal({
         </div>
 
         {errorMsg && (
-          <div style={{ color: '#ef4444', fontSize: 12, marginBottom: 14, background: '#fee2e2', padding: 8, borderRadius: 8 }}>
+          <div style={{ color: '#ef4444', fontSize: 12, marginBottom: 14, background: '#fee2e2', padding: 10, borderRadius: 8, lineHeight: 1.5 }}>
             {errorMsg}
           </div>
         )}
@@ -257,7 +261,7 @@ function AuthModal({
           Continue with Google
         </button>
 
-        <div className="auth-divider">OR USE EMAIL</div>
+        <div className="auth-divider">OR USE EMAIL & PASSWORD</div>
 
         <form onSubmit={handleSubmit}>
           {tab === 'signup' && (
@@ -266,7 +270,7 @@ function AuthModal({
                 <label>Your Full Name *</label>
                 <input
                   className="form-input"
-                  placeholder="e.g. Oluwaseun Adeyemi"
+                  placeholder="e.g. Oyewole Victor Folarin"
                   value={merchantName}
                   onChange={e => setMerchantName(e.target.value)}
                   required
@@ -276,10 +280,20 @@ function AuthModal({
                 <label>Store / Business Name *</label>
                 <input
                   className="form-input"
-                  placeholder="e.g. Adeyemi Provisions & Wholesale"
+                  placeholder="e.g. Tanimola Enterprise"
                   value={shopName}
                   onChange={e => setShopName(e.target.value)}
                   required
+                />
+              </div>
+              <div className="form-group">
+                <label>WhatsApp / Phone Number</label>
+                <input
+                  type="tel"
+                  className="form-input"
+                  placeholder="e.g. 0803 555 0142"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
                 />
               </div>
             </>
@@ -310,16 +324,16 @@ function AuthModal({
           </div>
 
           <button className="btn primary full" type="submit" disabled={loading} style={{ marginTop: 10 }}>
-            {loading ? 'Please wait...' : tab === 'signup' ? 'Register & Open My Ledger' : 'Sign in to Ledger'}
+            {loading ? 'Please wait...' : tab === 'signup' ? 'Create Real Merchant Account' : 'Sign In to My Ledger'}
           </button>
         </form>
 
         <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)', textAlign: 'center' }}>
           <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
-            Evaluating for the Meta AI Hackathon?
+            Hackathon Judge or Evaluator?
           </p>
           <button className="btn outline full" onClick={handleDemoAuth} type="button">
-            ⚡ Quick Demo Mode (Judges & Evaluation)
+            ⚡ Explore Sample Demo Store (Judges Only)
           </button>
         </div>
       </div>
@@ -2039,9 +2053,11 @@ export default function App() {
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [targetCustomer, setTargetCustomer] = useState<CustomerItem | null>(null)
 
-  // Real Data: start fresh/empty if nothing has been recorded yet!
-  const [customers, setCustomers] = useState<CustomerItem[]>(() => {
-    const saved = localStorage.getItem('sabiledger_real_customers')
+  // Isolate data by user account:
+  const getStoredCusts = (u: MerchantUser | null): CustomerItem[] => {
+    if (!u) return []
+    if (u.isDemo) return SAMPLE_JUDGE_CUSTOMERS
+    const saved = localStorage.getItem(`sabiledger_real_cust_${u.id}`)
     if (saved) {
       try {
         const parsed = JSON.parse(saved)
@@ -2049,10 +2065,12 @@ export default function App() {
       } catch (_) {}
     }
     return []
-  })
+  }
 
-  const [transactions, setTransactions] = useState<TransactionItem[]>(() => {
-    const saved = localStorage.getItem('sabiledger_real_transactions')
+  const getStoredTxs = (u: MerchantUser | null): TransactionItem[] => {
+    if (!u) return []
+    if (u.isDemo) return SAMPLE_JUDGE_TRANSACTIONS
+    const saved = localStorage.getItem(`sabiledger_real_tx_${u.id}`)
     if (saved) {
       try {
         const parsed = JSON.parse(saved)
@@ -2060,7 +2078,17 @@ export default function App() {
       } catch (_) {}
     }
     return []
-  })
+  }
+
+  // Real Data: completely separated from Demo mode!
+  const [customers, setCustomers] = useState<CustomerItem[]>(() => getStoredCusts(user))
+  const [transactions, setTransactions] = useState<TransactionItem[]>(() => getStoredTxs(user))
+
+  // Update records whenever user logs in or switches account:
+  useEffect(() => {
+    setCustomers(getStoredCusts(user))
+    setTransactions(getStoredTxs(user))
+  }, [user?.id, user?.isDemo])
 
   // Theme synchronization:
   useEffect(() => {
@@ -2083,25 +2111,30 @@ export default function App() {
   const persistData = (newCusts: CustomerItem[], newTxs: TransactionItem[]) => {
     setCustomers(newCusts)
     setTransactions(newTxs)
-    localStorage.setItem('sabiledger_real_customers', JSON.stringify(newCusts))
-    localStorage.setItem('sabiledger_real_transactions', JSON.stringify(newTxs))
+    if (user && !user.isDemo) {
+      localStorage.setItem(`sabiledger_real_cust_${user.id}`, JSON.stringify(newCusts))
+      localStorage.setItem(`sabiledger_real_tx_${user.id}`, JSON.stringify(newTxs))
+    }
   }
 
   // Clear data handler:
   const handleClearData = () => {
-    if (window.confirm('Clear all customers and transactions to start with a fresh blank ledger?')) {
+    if (window.confirm('Clear all customer and transaction records to start completely blank?')) {
       persistData([], [])
     }
   }
 
   // Load sample data for judges / evaluation:
   const handleLoadJudgeData = () => {
-    persistData(SAMPLE_JUDGE_CUSTOMERS, SAMPLE_JUDGE_TRANSACTIONS)
+    setCustomers(SAMPLE_JUDGE_CUSTOMERS)
+    setTransactions(SAMPLE_JUDGE_TRANSACTIONS)
   }
 
   const handleSignOut = async () => {
     await signOutUser()
     setUser(null)
+    setCustomers([])
+    setTransactions([])
   }
 
   // Add customer handler:
