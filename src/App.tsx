@@ -9,8 +9,7 @@ import {
   MerchantUser
 } from './lib/supabaseClient'
 import {
-  formatNaira,
-  recordTransaction
+  formatNaira
 } from './lib/ledgerEngine'
 import {
   parseNotebookImage,
@@ -45,14 +44,15 @@ export interface TransactionItem {
   verified: boolean
 }
 
-const DEFAULT_CUSTOMERS: CustomerItem[] = [
+// Sample data exclusively for judges & hackathon previewers
+const SAMPLE_JUDGE_CUSTOMERS: CustomerItem[] = [
   { id: 'c1', name: 'Musa Abdullahi', phone: '+2348035550142', initials: 'MA', balance: '₦2,000', currentBalance: 2000, totalDebt: 7000, totalPaid: 5000, status: 'Due today', color: '#e9a23b', tag: 'Rice & Grains' },
   { id: 'c2', name: 'Chioma Okafor', phone: '+2348123456789', initials: 'CO', balance: '₦18,500', currentBalance: 18500, totalDebt: 23500, totalPaid: 5000, status: '12 days overdue', color: '#d5685d', tag: 'Fabrics & Lace' },
   { id: 'c3', name: 'Tunde Ajayi', phone: '+2349087654321', initials: 'TA', balance: '₦0', currentBalance: 0, totalDebt: 12500, totalPaid: 12500, status: 'Fully paid', color: '#3d9474', tag: 'Beverages' },
   { id: 'c4', name: 'Aisha Bello', phone: '+2347012348899', initials: 'AB', balance: '₦7,200', currentBalance: 7200, totalDebt: 31900, totalPaid: 24700, status: 'Due Friday', color: '#7d6bb2', tag: 'Provisions' },
 ]
 
-const DEFAULT_TRANSACTIONS: TransactionItem[] = [
+const SAMPLE_JUDGE_TRANSACTIONS: TransactionItem[] = [
   { id: 't1', name: 'Musa Abdullahi', initials: 'MA', item: '2 bags of rice', amount: '₦68,000', rawAmount: 68000, type: 'Sale', time: '10:42 AM', verified: true },
   { id: 't2', name: 'Tunde Ajayi', initials: 'TA', item: 'Debt repayment', amount: '+₦12,500', rawAmount: 12500, type: 'Payment', time: '9:18 AM', verified: true },
   { id: 't3', name: 'Aisha Bello', initials: 'AB', item: 'Fabric & delivery', amount: '₦24,700', rawAmount: 24700, type: 'Sale', time: 'Yesterday', verified: true },
@@ -128,24 +128,30 @@ function ThemeToggle({ theme, toggleTheme }: { theme: 'light' | 'dark'; toggleTh
 }
 
 /* ==========================================================================
-   Auth Modal (Google, Email, & 1-Click Demo)
+   Auth Modal (Auth Comes First)
    ========================================================================== */
 function AuthModal({
   isOpen,
+  initialTab = 'signup',
   onClose,
   onSuccess
 }: {
   isOpen: boolean
+  initialTab?: 'signin' | 'signup'
   onClose: () => void
   onSuccess: (u: MerchantUser) => void
 }) {
-  const [tab, setTab] = useState<'signin' | 'signup'>('signin')
+  const [tab, setTab] = useState<'signin' | 'signup'>(initialTab)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [merchantName, setMerchantName] = useState('')
   const [shopName, setShopName] = useState('')
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+
+  useEffect(() => {
+    setTab(initialTab)
+  }, [initialTab, isOpen])
 
   if (!isOpen) return null
 
@@ -189,6 +195,11 @@ function AuthModal({
           setErrorMsg(res.error.message || 'Sign in failed')
         }
       } else {
+        if (!merchantName.trim() || !shopName.trim()) {
+          setErrorMsg('Please provide your full name and store name.')
+          setLoading(false)
+          return
+        }
         const res = await signUpWithEmail(email, password, merchantName, shopName)
         if (res.user) {
           onSuccess(res.user)
@@ -216,16 +227,16 @@ function AuthModal({
 
         <div className="auth-tabs">
           <button
-            className={`auth-tab ${tab === 'signin' ? 'active' : ''}`}
-            onClick={() => { setTab('signin'); setErrorMsg('') }}
-          >
-            Sign in
-          </button>
-          <button
             className={`auth-tab ${tab === 'signup' ? 'active' : ''}`}
             onClick={() => { setTab('signup'); setErrorMsg('') }}
           >
             Create merchant account
+          </button>
+          <button
+            className={`auth-tab ${tab === 'signin' ? 'active' : ''}`}
+            onClick={() => { setTab('signin'); setErrorMsg('') }}
+          >
+            Sign in
           </button>
         </div>
 
@@ -236,7 +247,7 @@ function AuthModal({
         )}
 
         {/* Google OAuth Button */}
-        <button className="google-btn" onClick={handleGoogleAuth} disabled={loading}>
+        <button className="google-btn" onClick={handleGoogleAuth} disabled={loading} type="button">
           <svg width="18" height="18" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
             <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -252,20 +263,20 @@ function AuthModal({
           {tab === 'signup' && (
             <>
               <div className="form-group">
-                <label>Your Full Name</label>
+                <label>Your Full Name *</label>
                 <input
                   className="form-input"
-                  placeholder="e.g. Amaka Okorie"
+                  placeholder="e.g. Oluwaseun Adeyemi"
                   value={merchantName}
                   onChange={e => setMerchantName(e.target.value)}
                   required
                 />
               </div>
               <div className="form-group">
-                <label>Shop / Business Name</label>
+                <label>Store / Business Name *</label>
                 <input
                   className="form-input"
-                  placeholder="e.g. Amaka’s Provisions Store"
+                  placeholder="e.g. Adeyemi Provisions & Wholesale"
                   value={shopName}
                   onChange={e => setShopName(e.target.value)}
                   required
@@ -275,11 +286,11 @@ function AuthModal({
           )}
 
           <div className="form-group">
-            <label>Email Address</label>
+            <label>Email Address *</label>
             <input
               type="email"
               className="form-input"
-              placeholder="merchant@store.ng"
+              placeholder="merchant@yourstore.ng"
               value={email}
               onChange={e => setEmail(e.target.value)}
               required
@@ -287,7 +298,7 @@ function AuthModal({
           </div>
 
           <div className="form-group">
-            <label>Password</label>
+            <label>Password *</label>
             <input
               type="password"
               className="form-input"
@@ -299,16 +310,16 @@ function AuthModal({
           </div>
 
           <button className="btn primary full" type="submit" disabled={loading} style={{ marginTop: 10 }}>
-            {loading ? 'Please wait...' : tab === 'signin' ? 'Sign in to Ledger' : 'Create Account'}
+            {loading ? 'Please wait...' : tab === 'signup' ? 'Register & Open My Ledger' : 'Sign in to Ledger'}
           </button>
         </form>
 
         <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)', textAlign: 'center' }}>
           <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
-            Testing or judging the hackathon?
+            Evaluating for the Meta AI Hackathon?
           </p>
           <button className="btn outline full" onClick={handleDemoAuth} type="button">
-            ⚡ Quick Demo Access (1-Click Judge Bypass)
+            ⚡ Quick Demo Mode (Judges & Evaluation)
           </button>
         </div>
       </div>
@@ -522,18 +533,16 @@ function RecordPaymentModal({
 }
 
 /* ==========================================================================
-   Landing Page
+   Landing Page (Auth Comes First)
    ========================================================================== */
 function Landing({
-  enter,
   theme,
   toggleTheme,
   onOpenAuth
 }: {
-  enter: () => void
   theme: 'light' | 'dark'
   toggleTheme: () => void
-  onOpenAuth: () => void
+  onOpenAuth: (tab: 'signin' | 'signup') => void
 }) {
   return (
     <main className="landing">
@@ -543,10 +552,10 @@ function Landing({
           <a href="#how">How it works</a>
           <a href="#features">Features</a>
           <ThemeToggle theme={theme} toggleTheme={toggleTheme} />
-          <button className="btn ghost" onClick={onOpenAuth}>
+          <button className="btn ghost" onClick={() => onOpenAuth('signin')}>
             Sign in
           </button>
-          <button className="btn primary" onClick={enter}>
+          <button className="btn primary" onClick={() => onOpenAuth('signup')}>
             Get started <Icon name="arrow" size={16} />
           </button>
         </div>
@@ -564,7 +573,7 @@ function Landing({
             SabiLedger uses multimodal AI (Meta Llama 3.2 OCR & Voice) to turn handwritten notebook records and informal Pidgin/English notes into verified sales, deterministic debt tracking, and 1-click WhatsApp payment reminders.
           </p>
           <div className="hero-actions">
-            <button className="btn primary big" onClick={enter}>
+            <button className="btn primary big" onClick={() => onOpenAuth('signup')}>
               Get started free <Icon name="arrow" />
             </button>
             <button
@@ -600,39 +609,45 @@ function Landing({
             </div>
             <div className="phone-head">
               <Logo />
-              <span className="avatar">AO</span>
+              <span className="avatar">SB</span>
             </div>
-            <p className="muted">Good morning, Amaka</p>
-            <h3>Here’s your business today.</h3>
+            <p className="muted">Live Business Overview</p>
+            <h3>Real-time merchant ledger.</h3>
             <div className="phone-balance">
               <span>Total sales · May</span>
               <strong>₦842,500</strong>
               <small>↑ 12.5% this month</small>
             </div>
             <div className="quick-grid">
-              <button onClick={enter}>
+              <button onClick={() => onOpenAuth('signup')}>
                 <Icon name="scan" />
                 <span>Scan note</span>
               </button>
-              <button onClick={enter}>
+              <button onClick={() => onOpenAuth('signup')}>
                 <Icon name="voice" />
                 <span>Speak sale</span>
               </button>
             </div>
             <div className="mini-row">
               <b>Recent activity</b>
-              <span>See all</span>
+              <span>Real records</span>
             </div>
-            {DEFAULT_TRANSACTIONS.slice(0, 3).map(t => (
-              <div className="phone-tx" key={t.id}>
-                <span className="avatar small">{t.initials}</span>
-                <div>
-                  <b>{t.name}</b>
-                  <small>{t.item}</small>
-                </div>
-                <strong>{t.amount}</strong>
+            <div className="phone-tx">
+              <span className="avatar small">MA</span>
+              <div>
+                <b>Musa Abdullahi</b>
+                <small>2 bags of rice</small>
               </div>
-            ))}
+              <strong>₦68,000</strong>
+            </div>
+            <div className="phone-tx">
+              <span className="avatar small">TA</span>
+              <div>
+                <b>Tunde Ajayi</b>
+                <small>Debt repayment</small>
+              </div>
+              <strong style={{ color: 'var(--green)' }}>+₦12,500</strong>
+            </div>
           </div>
           <div className="float-card ai-float">
             <span className="spark">✦</span>
@@ -704,7 +719,7 @@ function Landing({
               </span>
               <b>Review & Validate</b>
               <small>Uncertain entries flagged</small>
-              <button onClick={enter}>Confirm & save</button>
+              <button onClick={() => onOpenAuth('signup')}>Confirm & save</button>
             </div>
             <h3>Merchant in Control</h3>
             <p>Edit any misspelling with one tap. Zero AI hallucinations in your book.</p>
@@ -748,16 +763,16 @@ function Sidebar({
   view,
   setView,
   user,
-  onOpenAuth,
   onSignOut,
-  onResetData
+  onLoadJudgeData,
+  onClearData
 }: {
   view: View
   setView: (v: View) => void
-  user: MerchantUser | null
-  onOpenAuth: () => void
+  user: MerchantUser
   onSignOut: () => void
-  onResetData: () => void
+  onLoadJudgeData: () => void
+  onClearData: () => void
 }) {
   const nav: [View, string, string][] = [
     ['dashboard', 'dashboard', 'Overview'],
@@ -768,8 +783,8 @@ function Sidebar({
     ['insights', 'insights', 'Insights'],
   ]
 
-  const shopName = user?.shopName || "Amaka’s Store"
-  const merchantName = user?.name || "Amaka Okorie"
+  const shopName = user.shopName || 'My Business'
+  const merchantName = user.name || 'Merchant'
   const merchantInitials = getInitials(merchantName)
 
   return (
@@ -779,7 +794,7 @@ function Sidebar({
         <span className="avatar">{merchantInitials}</span>
         <div>
           <b>{shopName}</b>
-          <small>{user ? 'Verified Merchant' : 'Demo Account'}</small>
+          <small>{user.id.startsWith('usr_demo') ? 'Demo Evaluation' : 'Verified Merchant'}</small>
         </div>
         <Icon name="arrow" size={15} />
       </div>
@@ -793,46 +808,47 @@ function Sidebar({
           >
             <Icon name={icon} />
             <span>{label}</span>
-            {id === 'reminders' && <i>3</i>}
           </button>
         ))}
       </nav>
 
       <div className="sidebar-foot">
-        <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
           <button
             className="btn outline full"
             style={{ fontSize: 10, padding: 8, display: 'flex', gap: 6 }}
-            onClick={onResetData}
-            title="Reset to default sample data or start fresh"
+            onClick={onClearData}
+            title="Clear all records to start completely blank"
           >
-            <Icon name="refresh" size={14} />
-            <span>Reset Sample Data</span>
+            <Icon name="refresh" size={13} />
+            <span>Clear Ledger Data</span>
+          </button>
+          <button
+            className="btn ghost full"
+            style={{ fontSize: 10, padding: 6, color: 'var(--muted)' }}
+            onClick={onLoadJudgeData}
+            title="Load sample records for evaluation"
+          >
+            ⚡ Load Demo Records
           </button>
         </div>
 
-        {user ? (
-          <div className="profile" style={{ justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <span className="avatar">{merchantInitials}</span>
-              <div>
-                <b>{merchantName}</b>
-                <small>{user.email}</small>
-              </div>
+        <div className="profile" style={{ justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <span className="avatar">{merchantInitials}</span>
+            <div>
+              <b>{merchantName}</b>
+              <small>{user.email}</small>
             </div>
-            <button
-              onClick={onSignOut}
-              title="Sign out"
-              style={{ border: 0, background: 'transparent', color: '#ef4444', padding: 6 }}
-            >
-              <Icon name="logOut" size={16} />
-            </button>
           </div>
-        ) : (
-          <button className="btn primary full" onClick={onOpenAuth} style={{ fontSize: 11, padding: 9 }}>
-            Sign In / Register
+          <button
+            onClick={onSignOut}
+            title="Sign out"
+            style={{ border: 0, background: 'transparent', color: '#ef4444', padding: 6, cursor: 'pointer' }}
+          >
+            <Icon name="logOut" size={16} />
           </button>
-        )}
+        </div>
       </div>
     </aside>
   )
@@ -850,9 +866,9 @@ function AppHeader({
   title: string
   theme: 'light' | 'dark'
   toggleTheme: () => void
-  user: MerchantUser | null
+  user: MerchantUser
 }) {
-  const initials = getInitials(user?.name || 'Amaka Okorie')
+  const initials = getInitials(user.name)
   const dateStr = new Date().toLocaleDateString('en-GB', {
     weekday: 'long',
     day: 'numeric',
@@ -875,7 +891,7 @@ function AppHeader({
           <Icon name="bell" />
           <i />
         </button>
-        <span className="avatar" title={user?.name || 'Amaka Okorie'}>
+        <span className="avatar" title={user.name}>
           {initials}
         </span>
       </div>
@@ -917,7 +933,7 @@ function Stat({
 }
 
 /* ==========================================================================
-   Dashboard View
+   Dashboard View (Real Data First)
    ========================================================================== */
 function Dashboard({
   setView,
@@ -925,24 +941,30 @@ function Dashboard({
   transactions,
   theme,
   toggleTheme,
-  user
+  user,
+  onOpenAddModal,
+  onLoadJudgeData
 }: {
   setView: (v: View) => void
   customers: CustomerItem[]
   transactions: TransactionItem[]
   theme: 'light' | 'dark'
   toggleTheme: () => void
-  user: MerchantUser | null
+  user: MerchantUser
+  onOpenAddModal: () => void
+  onLoadJudgeData: () => void
 }) {
   const totalDebts = customers.reduce((acc, c) => acc + (c.currentBalance > 0 ? c.currentBalance : 0), 0)
   const totalPaid = customers.reduce((acc, c) => acc + c.totalPaid, 0)
   const totalSalesVal = customers.reduce((acc, c) => acc + c.totalDebt, 0)
-  const collectionRate = totalSalesVal > 0 ? Math.round((totalPaid / (totalSalesVal + totalPaid)) * 100) : 68
+  const collectionRate = (totalSalesVal + totalPaid) > 0 ? Math.round((totalPaid / (totalSalesVal + totalPaid)) * 100) : 0
+
+  const hasData = customers.length > 0 || transactions.length > 0
 
   return (
     <>
       <AppHeader
-        title={`Good morning, ${user?.name?.split(' ')[0] || 'Amaka'}`}
+        title={`Good morning, ${user.name.split(' ')[0]}`}
         theme={theme}
         toggleTheme={toggleTheme}
         user={user}
@@ -951,162 +973,189 @@ function Dashboard({
         <section className="welcome">
           <div>
             <span className="eyebrow">YOUR BUSINESS TODAY</span>
-            <h2>Everything is looking good.</h2>
-            <p>You’ve collected {collectionRate}% of this week’s outstanding balances.</p>
+            <h2>{user.shopName}</h2>
+            <p>
+              {hasData
+                ? `You’ve collected ${collectionRate}% of tracked receivables.`
+                : 'Your ledger is ready for real records. Snap a paper notebook or add your first customer.'}
+            </p>
           </div>
           <div className="welcome-actions">
             <button className="btn outline" onClick={() => setView('scan')}>
               <Icon name="scan" /> Scan notebook
             </button>
-            <button className="btn primary" onClick={() => setView('voice')}>
-              <Icon name="plus" /> Record sale
+            <button className="btn primary" onClick={() => onOpenAddModal()}>
+              <Icon name="plus" /> Add customer
             </button>
           </div>
         </section>
 
-        <div className="stats">
-          <Stat
-            label="Total sales"
-            value={formatNaira(totalSalesVal || 842500)}
-            change="↑ 12.5% this month"
-            tone="green"
-            icon="insights"
-          />
-          <Stat
-            label="Outstanding debts"
-            value={formatNaira(totalDebts)}
-            change={`${customers.filter(c => c.currentBalance > 0).length} customers owing`}
-            tone="amber"
-            icon="reminders"
-          />
-          <Stat
-            label="Payments received"
-            value={formatNaira(totalPaid || 318400)}
-            change="↑ 8.2% this month"
-            tone="mint"
-            icon="check"
-          />
-          <Stat
-            label="Active customers"
-            value={customers.length.toString()}
-            change="+4 new this month"
-            tone="purple"
-            icon="customers"
-          />
-        </div>
-
-        <div className="dash-grid">
-          <section className="panel chart-panel">
-            <div className="panel-head">
-              <div>
-                <h3>Sales overview</h3>
-                <p>Your sales performance over time</p>
-              </div>
-              <select>
-                <option>Last 7 days</option>
-                <option>This month</option>
-              </select>
+        {!hasData ? (
+          <div className="empty-ledger-card">
+            <span className="empty-icon">📖</span>
+            <h3>Welcome to SabiLedger, {user.name.split(' ')[0]}</h3>
+            <p>
+              Your store ledger currently has zero entries. Start by uploading a photo of your paper notebook, or add a customer to log credit sales and debts.
+            </p>
+            <div className="empty-actions">
+              <button className="btn primary" onClick={() => setView('scan')}>
+                <Icon name="scan" /> Upload Notebook Photo
+              </button>
+              <button className="btn outline" onClick={onOpenAddModal}>
+                <Icon name="plus" /> Add Customer Manually
+              </button>
+              <button className="btn ghost" onClick={onLoadJudgeData}>
+                ⚡ Load Sample Data (For Judges)
+              </button>
             </div>
-            <div className="chart-wrap">
-              <div className="y-axis">
-                <span>₦100k</span>
-                <span>₦75k</span>
-                <span>₦50k</span>
-                <span>₦25k</span>
-                <span>₦0</span>
-              </div>
-              <div className="chart">
-                <div className="grid-lines" />
-                <svg viewBox="0 0 700 220" preserveAspectRatio="none">
-                  <defs>
-                    <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0" stopColor="#167a58" stopOpacity=".24" />
-                      <stop offset="1" stopColor="#167a58" stopOpacity="0" />
-                    </linearGradient>
-                  </defs>
-                  <path
-                    className="area"
-                    d="M0 180 C70 155 80 165 140 112 S235 145 290 98 S370 80 430 115 S520 75 570 85 S640 35 700 48 L700 220 L0 220Z"
-                  />
-                  <path
-                    className="line"
-                    d="M0 180 C70 155 80 165 140 112 S235 145 290 98 S370 80 430 115 S520 75 570 85 S640 35 700 48"
-                  />
-                </svg>
-                <div className="x-axis">
-                  <span>Mon</span>
-                  <span>Tue</span>
-                  <span>Wed</span>
-                  <span>Thu</span>
-                  <span>Fri</span>
-                  <span>Sat</span>
-                  <span>Sun</span>
+          </div>
+        ) : (
+          <>
+            <div className="stats">
+              <Stat
+                label="Total sales recorded"
+                value={formatNaira(totalSalesVal)}
+                change={totalSalesVal > 0 ? 'Verified transactions' : 'No sales yet'}
+                tone="green"
+                icon="insights"
+              />
+              <Stat
+                label="Outstanding debts"
+                value={formatNaira(totalDebts)}
+                change={`${customers.filter(c => c.currentBalance > 0).length} customer(s) owing`}
+                tone="amber"
+                icon="reminders"
+              />
+              <Stat
+                label="Payments received"
+                value={formatNaira(totalPaid)}
+                change="Confirmed in ledger"
+                tone="mint"
+                icon="check"
+              />
+              <Stat
+                label="Active customers"
+                value={customers.length.toString()}
+                change="In customer directory"
+                tone="purple"
+                icon="customers"
+              />
+            </div>
+
+            <div className="dash-grid">
+              <section className="panel chart-panel">
+                <div className="panel-head">
+                  <div>
+                    <h3>Sales overview</h3>
+                    <p>Tracked transactions over time</p>
+                  </div>
+                  <select>
+                    <option>Last 7 days</option>
+                    <option>This month</option>
+                  </select>
                 </div>
-              </div>
-            </div>
-          </section>
+                <div className="chart-wrap">
+                  <div className="y-axis">
+                    <span>₦100k</span>
+                    <span>₦75k</span>
+                    <span>₦50k</span>
+                    <span>₦25k</span>
+                    <span>₦0</span>
+                  </div>
+                  <div className="chart">
+                    <div className="grid-lines" />
+                    <svg viewBox="0 0 700 220" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0" stopColor="#10b981" stopOpacity=".24" />
+                          <stop offset="1" stopColor="#10b981" stopOpacity="0" />
+                        </linearGradient>
+                      </defs>
+                      <path
+                        className="area"
+                        d="M0 180 C70 155 80 165 140 112 S235 145 290 98 S370 80 430 115 S520 75 570 85 S640 35 700 48 L700 220 L0 220Z"
+                      />
+                      <path
+                        className="line"
+                        d="M0 180 C70 155 80 165 140 112 S235 145 290 98 S370 80 430 115 S520 75 570 85 S640 35 700 48"
+                      />
+                    </svg>
+                    <div className="x-axis">
+                      <span>Mon</span>
+                      <span>Tue</span>
+                      <span>Wed</span>
+                      <span>Thu</span>
+                      <span>Fri</span>
+                      <span>Sat</span>
+                      <span>Sun</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
 
-          <section className="panel debt-panel">
-            <div className="panel-head">
-              <div>
-                <h3>Debt collection</h3>
-                <p>Overall recovery rate</p>
-              </div>
-              <button onClick={() => setView('customers')}>View all</button>
+              <section className="panel debt-panel">
+                <div className="panel-head">
+                  <div>
+                    <h3>Debt collection</h3>
+                    <p>Recovery rate</p>
+                  </div>
+                  <button onClick={() => setView('customers')}>View all</button>
+                </div>
+                <div className="donut">
+                  <div>
+                    <strong>{collectionRate}%</strong>
+                    <span>collected</span>
+                  </div>
+                </div>
+                <div className="debt-legend">
+                  <div>
+                    <i />
+                    <span>Collected</span>
+                    <b>{formatNaira(totalPaid)}</b>
+                  </div>
+                  <div>
+                    <i />
+                    <span>Outstanding</span>
+                    <b>{formatNaira(totalDebts)}</b>
+                  </div>
+                </div>
+              </section>
             </div>
-            <div className="donut">
-              <div>
-                <strong>{collectionRate}%</strong>
-                <span>collected</span>
-              </div>
-            </div>
-            <div className="debt-legend">
-              <div>
-                <i />
-                <span>Collected</span>
-                <b>{formatNaira(totalPaid || 82400)}</b>
-              </div>
-              <div>
-                <i />
-                <span>Outstanding</span>
-                <b>{formatNaira(totalDebts)}</b>
-              </div>
-            </div>
-          </section>
-        </div>
 
-        <section className="panel transactions">
-          <div className="panel-head">
-            <div>
-              <h3>Recent transactions</h3>
-              <p>Your latest sales and payments</p>
-            </div>
-            <button onClick={() => setView('customers')}>
-              View all <Icon name="arrow" size={15} />
-            </button>
-          </div>
-          {transactions.map(t => (
-            <div className="transaction" key={t.id}>
-              <span className="avatar soft">{t.initials}</span>
-              <div className="tx-person">
-                <b>{t.name}</b>
-                <small>{t.item}</small>
+            <section className="panel transactions">
+              <div className="panel-head">
+                <div>
+                  <h3>Recent transactions</h3>
+                  <p>Latest verified entries</p>
+                </div>
+                <button onClick={() => setView('customers')}>
+                  View all <Icon name="arrow" size={15} />
+                </button>
               </div>
-              <span className={`tag ${t.type.toLowerCase()}`}>{t.type}</span>
-              <small>{t.time}</small>
-              <strong className={t.amount.startsWith('+') ? 'positive' : ''}>
-                {t.amount}
-              </strong>
-            </div>
-          ))}
-        </section>
+              {transactions.slice(0, 5).map(t => (
+                <div className="transaction" key={t.id}>
+                  <span className="avatar soft">{t.initials}</span>
+                  <div className="tx-person">
+                    <b>{t.name}</b>
+                    <small>{t.item}</small>
+                  </div>
+                  <span className={`tag ${t.type.toLowerCase()}`}>{t.type}</span>
+                  <small>{t.time}</small>
+                  <strong className={t.amount.startsWith('+') ? 'positive' : ''}>
+                    {t.amount}
+                  </strong>
+                </div>
+              ))}
+            </section>
+          </>
+        )}
       </div>
     </>
   )
 }
 
 /* ==========================================================================
-   Scanner View (Live Image Upload & OCR)
+   Scanner View (Live Real Image OCR)
    ========================================================================== */
 function Scanner({
   onSaveTransactions,
@@ -1117,7 +1166,7 @@ function Scanner({
   onSaveTransactions: (entries: Array<{ name: string; item: string; amount: number; isPayment: boolean }>) => void
   theme: 'light' | 'dark'
   toggleTheme: () => void
-  user: MerchantUser | null
+  user: MerchantUser
 }) {
   const [saved, setSaved] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
@@ -1142,7 +1191,6 @@ function Scanner({
     setSaved(false)
 
     try {
-      // Call Meta Model API adapter:
       const reader = new FileReader()
       reader.onloadend = async () => {
         const base64 = (reader.result as string).split(',')[1]
@@ -1161,7 +1209,7 @@ function Scanner({
             setExtractedRows(mapped)
           }
         } catch (_) {
-          // Graceful keep
+          // Graceful fallback
         } finally {
           setAnalyzing(false)
         }
@@ -1249,10 +1297,10 @@ function Scanner({
               <div className="panel-head">
                 <div>
                   <h3>Uploaded notebook</h3>
-                  <p>{imagePreview ? 'Custom uploaded photo' : 'IMG_2038.jpg · Balogun Market credit book'}</p>
+                  <p>{imagePreview ? 'Custom uploaded photo' : 'IMG_2038.jpg · Paper credit ledger'}</p>
                 </div>
                 <span className="tag payment">
-                  {analyzing ? '✦ Meta AI Processing...' : 'AI Processed'}
+                  {analyzing ? '✦ Meta AI Processing...' : 'AI Ready'}
                 </span>
               </div>
 
@@ -1384,7 +1432,7 @@ function Voice({
   onRecordPayment: (customerId: string, amount: number, note: string) => void
   theme: 'light' | 'dark'
   toggleTheme: () => void
-  user: MerchantUser | null
+  user: MerchantUser
 }) {
   const [recording, setRecording] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
@@ -1401,7 +1449,6 @@ function Voice({
       setRecording(true)
       setConfirmed(false)
 
-      // Check if browser has speech recognition:
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
       if (SpeechRecognition) {
         const recognition = new SpeechRecognition()
@@ -1425,7 +1472,6 @@ function Voice({
 
         recognition.start()
       } else {
-        // Fallback simulation timer for browsers without SpeechRecognition
         setTimeout(async () => {
           setRecording(false)
           const sample = 'Musa don pay 5000 naira cash this morning'
@@ -1533,7 +1579,7 @@ function Voice({
 }
 
 /* ==========================================================================
-   Customers View (Ledger & Real Payment Recording)
+   Customers View (Real Customer Directory)
    ========================================================================== */
 function Customers({
   customers,
@@ -1552,7 +1598,7 @@ function Customers({
   onSendReminder: (c: CustomerItem) => void
   theme: 'light' | 'dark'
   toggleTheme: () => void
-  user: MerchantUser | null
+  user: MerchantUser
 }) {
   const [selected, setSelected] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
@@ -1583,109 +1629,127 @@ function Customers({
           </button>
         </div>
 
-        <div className="customer-layout">
-          <section className="panel customer-list">
-            <label className="search">
-              <Icon name="search" size={17} />
-              <input
-                placeholder="Search customers or phone..."
-                value={searchQuery}
-                onChange={e => { setSearchQuery(e.target.value); setSelected(0) }}
-              />
-            </label>
+        {customers.length === 0 ? (
+          <div className="empty-ledger-card">
+            <span className="empty-icon">👥</span>
+            <h3>No customers added yet</h3>
+            <p>Add your first debtor or customer to start tracking debts and balances.</p>
+            <button className="btn primary" onClick={onOpenAddModal}>
+              <Icon name="plus" /> Add First Customer
+            </button>
+          </div>
+        ) : (
+          <div className="customer-layout">
+            <section className="panel customer-list">
+              <label className="search">
+                <Icon name="search" size={17} />
+                <input
+                  placeholder="Search customers or phone..."
+                  value={searchQuery}
+                  onChange={e => { setSearchQuery(e.target.value); setSelected(0) }}
+                />
+              </label>
 
-            {filtered.map((c, i) => (
-              <button
-                className={selected === i ? 'selected' : ''}
-                onClick={() => setSelected(i)}
-                key={c.id}
-              >
-                <span className="avatar soft">{c.initials}</span>
-                <div>
-                  <b>{c.name}</b>
-                  <small>{c.status}</small>
-                </div>
-                <strong>{c.balance}</strong>
-              </button>
-            ))}
-
-            {filtered.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--muted)', fontSize: 12 }}>
-                No customer found. Click "Add customer" above.
-              </div>
-            )}
-          </section>
-
-          {activeCustomer && (
-            <section className="panel customer-detail">
-              <div className="customer-hero">
-                <span className="avatar large">{activeCustomer.initials}</span>
-                <div>
-                  <h2>{activeCustomer.name}</h2>
-                  <p>
-                    {activeCustomer.phone} · {activeCustomer.tag || 'Regular Customer'}
-                  </p>
-                </div>
+              {filtered.map((c, i) => (
                 <button
-                  className="btn outline"
-                  onClick={() => onSendReminder(activeCustomer)}
+                  className={selected === i ? 'selected' : ''}
+                  onClick={() => setSelected(i)}
+                  key={c.id}
                 >
-                  <Icon name="reminders" size={16} /> WhatsApp reminder
-                </button>
-                <button
-                  className="btn primary"
-                  onClick={() => onOpenPaymentModal(activeCustomer)}
-                >
-                  <Icon name="plus" size={16} /> Record payment
-                </button>
-              </div>
-
-              <div className="customer-stats">
-                <div>
-                  <span>Outstanding balance</span>
-                  <b style={{ color: activeCustomer.currentBalance > 0 ? 'var(--red)' : 'var(--green)' }}>
-                    {activeCustomer.balance}
-                  </b>
-                </div>
-                <div>
-                  <span>Total credit granted</span>
-                  <b>{formatNaira(activeCustomer.totalDebt)}</b>
-                </div>
-                <div>
-                  <span>Total repaid</span>
-                  <b style={{ color: 'var(--green)' }}>{formatNaira(activeCustomer.totalPaid)}</b>
-                </div>
-              </div>
-
-              <h3>Transaction history</h3>
-              {transactions
-                .filter(t => t.name.toLowerCase().includes(activeCustomer.name.toLowerCase().split(' ')[0]))
-                .concat(transactions.slice(0, 2))
-                .slice(0, 4)
-                .map((t, i) => (
-                  <div className="history" key={t.id || i}>
-                    <span className="history-icon">
-                      <Icon name="check" size={16} />
-                    </span>
-                    <div>
-                      <b>{t.item}</b>
-                      <small>{t.time}</small>
-                    </div>
-                    <strong className={t.amount.startsWith('+') ? 'positive' : ''}>
-                      {t.amount}
-                    </strong>
+                  <span className="avatar soft">{c.initials}</span>
+                  <div>
+                    <b>{c.name}</b>
+                    <small>{c.status}</small>
                   </div>
-                ))}
+                  <strong>{c.balance}</strong>
+                </button>
+              ))}
+
+              {filtered.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--muted)', fontSize: 12 }}>
+                  No customer matches your search.
+                </div>
+              )}
             </section>
-          )}
-        </div>
+
+            {activeCustomer && (
+              <section className="panel customer-detail">
+                <div className="customer-hero">
+                  <span className="avatar large">{activeCustomer.initials}</span>
+                  <div>
+                    <h2>{activeCustomer.name}</h2>
+                    <p>
+                      {activeCustomer.phone} · {activeCustomer.tag || 'Customer Account'}
+                    </p>
+                  </div>
+                  <button
+                    className="btn outline"
+                    onClick={() => onSendReminder(activeCustomer)}
+                  >
+                    <Icon name="reminders" size={16} /> WhatsApp reminder
+                  </button>
+                  <button
+                    className="btn primary"
+                    onClick={() => onOpenPaymentModal(activeCustomer)}
+                  >
+                    <Icon name="plus" size={16} /> Record payment
+                  </button>
+                </div>
+
+                <div className="customer-stats">
+                  <div>
+                    <span>Outstanding balance</span>
+                    <b style={{ color: activeCustomer.currentBalance > 0 ? 'var(--red)' : 'var(--green)' }}>
+                      {activeCustomer.balance}
+                    </b>
+                  </div>
+                  <div>
+                    <span>Total credit granted</span>
+                    <b>{formatNaira(activeCustomer.totalDebt)}</b>
+                  </div>
+                  <div>
+                    <span>Total repaid</span>
+                    <b style={{ color: 'var(--green)' }}>{formatNaira(activeCustomer.totalPaid)}</b>
+                  </div>
+                </div>
+
+                <h3>Transaction history</h3>
+                {transactions
+                  .filter(t => t.name.toLowerCase().includes(activeCustomer.name.toLowerCase().split(' ')[0]))
+                  .length === 0 ? (
+                    <p style={{ color: 'var(--muted)', fontSize: 12, padding: '12px 0' }}>
+                      No prior transactions logged for this customer.
+                    </p>
+                  ) : (
+                    transactions
+                      .filter(t => t.name.toLowerCase().includes(activeCustomer.name.toLowerCase().split(' ')[0]))
+                      .slice(0, 5)
+                      .map((t, i) => (
+                        <div className="history" key={t.id || i}>
+                          <span className="history-icon">
+                            <Icon name="check" size={16} />
+                          </span>
+                          <div>
+                            <b>{t.item}</b>
+                            <small>{t.time}</small>
+                          </div>
+                          <strong className={t.amount.startsWith('+') ? 'positive' : ''}>
+                            {t.amount}
+                          </strong>
+                        </div>
+                      ))
+                  )}
+              </section>
+            )}
+          </div>
+        )}
       </div>
     </>
   )
 }
 
 /* ==========================================================================
-   Reminders View (1-Click WhatsApp wa.me Integration)
+   Reminders View (1-Click WhatsApp Integration)
    ========================================================================== */
 function Reminders({
   customers,
@@ -1696,14 +1760,15 @@ function Reminders({
   customers: CustomerItem[]
   theme: 'light' | 'dark'
   toggleTheme: () => void
-  user: MerchantUser | null
+  user: MerchantUser
 }) {
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [copied, setCopied] = useState(false)
   const [customText, setCustomText] = useState('')
 
-  const activeCustomer = customers[selectedIdx] || customers[0]
-  const shopName = user?.shopName || "Amaka’s Store"
+  const owingCustomers = customers.filter(c => c.currentBalance > 0)
+  const activeCustomer = owingCustomers[selectedIdx] || owingCustomers[0]
+  const shopName = user.shopName || 'Our Store'
 
   const defaultMsg = activeCustomer
     ? `Hello ${activeCustomer.name}, this is a friendly reminder from ${shopName}. Your outstanding balance for goods received is ${activeCustomer.balance}. Please arrange payment at your convenience. Thank you for your continued patronship, and God bless your business! 🙏`
@@ -1740,64 +1805,69 @@ function Reminders({
           </div>
         </div>
 
-        <div className="reminder-grid">
-          <section className="panel reminder-compose">
-            <div className="panel-head">
-              <div>
-                <h3>Message preview</h3>
-                <p>
-                  To {activeCustomer?.name} · {activeCustomer?.phone}
-                </p>
-              </div>
-              <span className="tag payment">
-                Owing {activeCustomer?.balance}
-              </span>
-            </div>
-
-            <div className="whatsapp">
-              <div className="wa-top">
-                <span className="avatar small">{activeCustomer?.initials}</span>
+        {owingCustomers.length === 0 ? (
+          <div className="empty-ledger-card">
+            <span className="empty-icon">🎉</span>
+            <h3>No outstanding debts!</h3>
+            <p>All customer accounts are fully settled or no debts are currently recorded.</p>
+          </div>
+        ) : (
+          <div className="reminder-grid">
+            <section className="panel reminder-compose">
+              <div className="panel-head">
                 <div>
-                  <b>{activeCustomer?.name}</b>
-                  <small>online</small>
+                  <h3>Message preview</h3>
+                  <p>
+                    To {activeCustomer?.name} · {activeCustomer?.phone}
+                  </p>
+                </div>
+                <span className="tag payment">
+                  Owing {activeCustomer?.balance}
+                </span>
+              </div>
+
+              <div className="whatsapp">
+                <div className="wa-top">
+                  <span className="avatar small">{activeCustomer?.initials}</span>
+                  <div>
+                    <b>{activeCustomer?.name}</b>
+                    <small>online</small>
+                  </div>
+                </div>
+                <div className="wa-chat">
+                  <div className="wa-day">TODAY</div>
+                  <div className="wa-message">
+                    {messageText}
+                    <span>10:42 ✓✓</span>
+                  </div>
                 </div>
               </div>
-              <div className="wa-chat">
-                <div className="wa-day">TODAY</div>
-                <div className="wa-message">
-                  {messageText}
-                  <span>10:42 ✓✓</span>
+
+              <textarea
+                value={messageText}
+                onChange={e => setCustomText(e.target.value)}
+                rows={4}
+              />
+
+              <div className="reminder-actions">
+                <button className="btn outline" onClick={handleCopy}>
+                  <Icon name="copy" size={16} /> {copied ? 'Copied!' : 'Copy message'}
+                </button>
+                <button className="btn whatsapp-btn" onClick={handleSendWhatsApp}>
+                  <Icon name="reminders" /> Send on WhatsApp
+                </button>
+              </div>
+            </section>
+
+            <section className="panel queue">
+              <div className="panel-head">
+                <div>
+                  <h3>Follow-up queue</h3>
+                  <p>Select customer to message</p>
                 </div>
               </div>
-            </div>
 
-            <textarea
-              value={messageText}
-              onChange={e => setCustomText(e.target.value)}
-              rows={4}
-            />
-
-            <div className="reminder-actions">
-              <button className="btn outline" onClick={handleCopy}>
-                <Icon name="copy" size={16} /> {copied ? 'Copied!' : 'Copy message'}
-              </button>
-              <button className="btn whatsapp-btn" onClick={handleSendWhatsApp}>
-                <Icon name="reminders" /> Send on WhatsApp
-              </button>
-            </div>
-          </section>
-
-          <section className="panel queue">
-            <div className="panel-head">
-              <div>
-                <h3>Follow-up queue</h3>
-                <p>Select customer to message</p>
-              </div>
-            </div>
-
-            {customers
-              .filter(c => c.currentBalance > 0)
-              .map((c, i) => (
+              {owingCustomers.map((c, i) => (
                 <div
                   className="queue-row"
                   key={c.id}
@@ -1822,8 +1892,9 @@ function Reminders({
                   </span>
                 </div>
               ))}
-          </section>
-        </div>
+            </section>
+          </div>
+        )}
       </div>
     </>
   )
@@ -1841,7 +1912,7 @@ function Insights({
   customers: CustomerItem[]
   theme: 'light' | 'dark'
   toggleTheme: () => void
-  user: MerchantUser | null
+  user: MerchantUser
 }) {
   const overdueTotal = customers
     .filter(c => c.status.includes('overdue'))
@@ -1873,8 +1944,8 @@ function Insights({
             </span>
             <div>
               <small>NEEDS ATTENTION</small>
-              <h3>{formatNaira(overdueTotal || 38000)} is overdue</h3>
-              <p>Chioma Okafor's account is over 12 days past scheduled repayment.</p>
+              <h3>{formatNaira(overdueTotal || 0)} overdue</h3>
+              <p>{overdueTotal > 0 ? 'Follow up with overdue customers via WhatsApp.' : 'All debts are within scheduled payment periods.'}</p>
             </div>
             <button>
               Review debts <Icon name="arrow" size={15} />
@@ -1886,9 +1957,9 @@ function Insights({
               <Icon name="insights" />
             </span>
             <div>
-              <small>WEEKLY HIGHLIGHT</small>
-              <h3>Repayments up 18.4%</h3>
-              <p>WhatsApp reminders generated ₦84,500 in prompt recoveries this week.</p>
+              <small>RECOVERY HEALTH</small>
+              <h3>Financial Integrity Active</h3>
+              <p>Deterministic arithmetic running on all customer ledger accounts.</p>
             </div>
             <button>
               View report <Icon name="arrow" size={15} />
@@ -1901,7 +1972,7 @@ function Insights({
             <div className="panel-head">
               <div>
                 <h3>Weekly sales breakdown</h3>
-                <p>₦284,500 total recorded this week</p>
+                <p>Activity overview</p>
               </div>
             </div>
             <div className="bars">
@@ -1920,7 +1991,7 @@ function Insights({
             <div className="panel-head">
               <div>
                 <h3>Priority follow-up list</h3>
-                <p>Ranked by age and repayment probability</p>
+                <p>Prioritized by outstanding balance</p>
               </div>
             </div>
             {customers.slice(0, 3).map(c => (
@@ -1934,6 +2005,11 @@ function Insights({
                 <button>Remind</button>
               </div>
             ))}
+            {customers.length === 0 && (
+              <p style={{ color: 'var(--muted)', fontSize: 12, padding: '20px 0', textAlign: 'center' }}>
+                No customers to follow up.
+              </p>
+            )}
           </section>
         </div>
       </div>
@@ -1942,38 +2018,48 @@ function Insights({
 }
 
 /* ==========================================================================
-   Main Application Shell
+   Main Application Shell (Auth First & Real Data)
    ========================================================================== */
 export default function App() {
-  const [view, setView] = useState<View>('home')
+  const [view, setView] = useState<View>('dashboard')
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     return (localStorage.getItem('sabiledger_theme') as 'light' | 'dark') || 'light'
   })
-  const [user, setUser] = useState<MerchantUser | null>(null)
+  const [user, setUser] = useState<MerchantUser | null>(() => {
+    const saved = localStorage.getItem('sabiledger_user')
+    if (saved) {
+      try { return JSON.parse(saved) } catch (_) {}
+    }
+    return null
+  })
+
   const [showAuthModal, setShowAuthModal] = useState(false)
+  const [authTab, setAuthTab] = useState<'signin' | 'signup'>('signup')
   const [showAddModal, setShowAddModal] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [targetCustomer, setTargetCustomer] = useState<CustomerItem | null>(null)
 
-  // Dynamic real data with local persistence:
+  // Real Data: start fresh/empty if nothing has been recorded yet!
   const [customers, setCustomers] = useState<CustomerItem[]>(() => {
-    const saved = localStorage.getItem('sabiledger_customers_v1')
+    const saved = localStorage.getItem('sabiledger_real_customers')
     if (saved) {
       try {
-        return JSON.parse(saved)
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed)) return parsed
       } catch (_) {}
     }
-    return DEFAULT_CUSTOMERS
+    return []
   })
 
   const [transactions, setTransactions] = useState<TransactionItem[]>(() => {
-    const saved = localStorage.getItem('sabiledger_transactions_v1')
+    const saved = localStorage.getItem('sabiledger_real_transactions')
     if (saved) {
       try {
-        return JSON.parse(saved)
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed)) return parsed
       } catch (_) {}
     }
-    return DEFAULT_TRANSACTIONS
+    return []
   })
 
   // Theme synchronization:
@@ -1986,7 +2072,7 @@ export default function App() {
     setTheme(prev => (prev === 'light' ? 'dark' : 'light'))
   }
 
-  // Load session on startup:
+  // Check Supabase session on startup:
   useEffect(() => {
     getCurrentUser().then(u => {
       if (u) setUser(u)
@@ -1997,20 +2083,25 @@ export default function App() {
   const persistData = (newCusts: CustomerItem[], newTxs: TransactionItem[]) => {
     setCustomers(newCusts)
     setTransactions(newTxs)
-    localStorage.setItem('sabiledger_customers_v1', JSON.stringify(newCusts))
-    localStorage.setItem('sabiledger_transactions_v1', JSON.stringify(newTxs))
+    localStorage.setItem('sabiledger_real_customers', JSON.stringify(newCusts))
+    localStorage.setItem('sabiledger_real_transactions', JSON.stringify(newTxs))
   }
 
-  const handleResetData = () => {
-    if (window.confirm('Reset all customers and transactions back to initial demo data?')) {
-      persistData(DEFAULT_CUSTOMERS, DEFAULT_TRANSACTIONS)
+  // Clear data handler:
+  const handleClearData = () => {
+    if (window.confirm('Clear all customers and transactions to start with a fresh blank ledger?')) {
+      persistData([], [])
     }
+  }
+
+  // Load sample data for judges / evaluation:
+  const handleLoadJudgeData = () => {
+    persistData(SAMPLE_JUDGE_CUSTOMERS, SAMPLE_JUDGE_TRANSACTIONS)
   }
 
   const handleSignOut = async () => {
     await signOutUser()
     setUser(null)
-    setView('home')
   }
 
   // Add customer handler:
@@ -2121,21 +2212,25 @@ export default function App() {
     persistData(currentCustList, currentTxList)
   }
 
-  // Views mapping:
-  if (view === 'home') {
+  // IF NOT AUTHENTICATED: Auth comes first! Show Landing page, and any action opens Auth modal:
+  if (!user) {
     return (
       <>
         <Landing
-          enter={() => setView('dashboard')}
           theme={theme}
           toggleTheme={toggleTheme}
-          onOpenAuth={() => setShowAuthModal(true)}
+          onOpenAuth={tab => {
+            setAuthTab(tab)
+            setShowAuthModal(true)
+          }}
         />
         <AuthModal
           isOpen={showAuthModal}
+          initialTab={authTab}
           onClose={() => setShowAuthModal(false)}
           onSuccess={u => {
             setUser(u)
+            setShowAuthModal(false)
             setView('dashboard')
           }}
         />
@@ -2149,9 +2244,9 @@ export default function App() {
         view={view}
         setView={setView}
         user={user}
-        onOpenAuth={() => setShowAuthModal(true)}
         onSignOut={handleSignOut}
-        onResetData={handleResetData}
+        onLoadJudgeData={handleLoadJudgeData}
+        onClearData={handleClearData}
       />
 
       <main className="app-main">
@@ -2163,6 +2258,8 @@ export default function App() {
             theme={theme}
             toggleTheme={toggleTheme}
             user={user}
+            onOpenAddModal={() => setShowAddModal(true)}
+            onLoadJudgeData={handleLoadJudgeData}
           />
         )}
 
@@ -2237,15 +2334,6 @@ export default function App() {
       </main>
 
       {/* Global Modals */}
-      <AuthModal
-        isOpen={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-        onSuccess={u => {
-          setUser(u)
-          setShowAuthModal(false)
-        }}
-      />
-
       <AddCustomerModal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
