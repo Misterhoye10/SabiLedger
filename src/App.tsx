@@ -584,7 +584,7 @@ function Landing({
             Turn messy notes into a <em>smarter business.</em>
           </h1>
           <p>
-            SabiLedger uses multimodal AI (Meta Llama 3.2 OCR & Voice) to turn handwritten notebook records and informal Pidgin/English notes into verified sales, deterministic debt tracking, and 1-click WhatsApp payment reminders.
+            SabiLedger uses multimodal AI (Meta Llama 3.2 OCR & Voice) to turn handwritten notebook records and natural voice notes into verified sales, deterministic debt tracking, and 1-click WhatsApp payment reminders.
           </p>
           <div className="hero-actions">
             <button className="btn primary big" onClick={() => onOpenAuth('signup')}>
@@ -1006,7 +1006,9 @@ function Dashboard({
 
         {!hasData ? (
           <div className="empty-ledger-card">
-            <span className="empty-icon">📖</span>
+            <div className="clean-icon-circle">
+              <Icon name="scan" size={26} />
+            </div>
             <h3>Welcome to SabiLedger, {user.name.split(' ')[0]}</h3>
             <p>
               Your store ledger currently has zero entries. Start by uploading a photo of your paper notebook, or add a customer to log credit sales and debts.
@@ -1450,7 +1452,7 @@ function Voice({
 }) {
   const [recording, setRecording] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
-  const [transcript, setTranscript] = useState('“Musa paid ₦5,000; he still owes ₦2,000.”')
+  const [transcript, setTranscript] = useState('“Customer Musa paid ₦5,000; remaining balance is ₦2,000.”')
   const [parsedResult, setParsedResult] = useState({
     customerName: 'Musa Abdullahi',
     paymentReceived: 5000,
@@ -1488,7 +1490,7 @@ function Voice({
       } else {
         setTimeout(async () => {
           setRecording(false)
-          const sample = 'Musa don pay 5000 naira cash this morning'
+          const sample = 'Customer Musa paid 5000 cash this morning, balance 2000'
           setTranscript(`“${sample}”`)
           const res = await parseNaturalLanguageCommand(sample, customers)
           if (res) setParsedResult(res)
@@ -1519,14 +1521,14 @@ function Voice({
       <div className="content voice-page">
         <div className="page-intro">
           <div>
-            <h2>Just say it naturally</h2>
-            <p>Speak in Nigerian English or Pidgin—Sabi AI extracts customer names, payments, and balances.</p>
+            <h2>Speak naturally in everyday language</h2>
+            <p>Meta Llama AI extracts customer names, payments, and balance updates from natural voice speech.</p>
           </div>
         </div>
 
         <section className="voice-card">
           <div className="language">
-            English / Pidgin (Nigeria) <span>⌄</span>
+            Natural Speech (Multilingual / Colloquial) <span>⌄</span>
           </div>
 
           <div className={`orb ${recording ? 'recording' : ''}`}>
@@ -1536,10 +1538,10 @@ function Voice({
             {recording && [1, 2, 3].map(x => <i key={x} />)}
           </div>
 
-          <h2>{recording ? 'Listening in Pidgin/English...' : 'Tap to speak'}</h2>
+          <h2>{recording ? 'Listening to speech...' : 'Tap to speak'}</h2>
           <p>
             {recording
-              ? 'Speak naturally (e.g. "Chioma pay 5k cash, balance 10k")'
+              ? 'Speak clearly (e.g. "Customer Musa paid 5,000 cash, balance 2,000")'
               : 'Record a sale, payment, or customer balance update.'}
           </p>
 
@@ -1556,7 +1558,7 @@ function Voice({
 
           <div className="voice-result">
             <div className="result-head">
-              <span>✦ Meta AI Parsed Action</span>
+              <span>✦ Meta Llama 3.2 Voice Engine</span>
               <small>Confidence 97%</small>
             </div>
             <div className="result-grid">
@@ -1645,9 +1647,11 @@ function Customers({
 
         {customers.length === 0 ? (
           <div className="empty-ledger-card">
-            <span className="empty-icon">👥</span>
+            <div className="clean-icon-circle">
+              <Icon name="customers" size={26} />
+            </div>
             <h3>No customers added yet</h3>
-            <p>Add your first debtor or customer to start tracking debts and balances.</p>
+            <p>Add your first customer to start tracking sales, credits, and balances.</p>
             <button className="btn primary" onClick={onOpenAddModal}>
               <Icon name="plus" /> Add First Customer
             </button>
@@ -1785,7 +1789,7 @@ function Reminders({
   const shopName = user.shopName || 'Our Store'
 
   const defaultMsg = activeCustomer
-    ? `Hello ${activeCustomer.name}, this is a friendly reminder from ${shopName}. Your outstanding balance for goods received is ${activeCustomer.balance}. Please arrange payment at your convenience. Thank you for your continued patronship, and God bless your business! 🙏`
+    ? `Hello ${activeCustomer.name}, this is a friendly reminder from ${shopName}. Your outstanding balance for goods received is ${activeCustomer.balance}. Please arrange payment at your convenience. Thank you for your continued partnership!`
     : ''
 
   const messageText = customText || defaultMsg
@@ -1821,9 +1825,11 @@ function Reminders({
 
         {owingCustomers.length === 0 ? (
           <div className="empty-ledger-card">
-            <span className="empty-icon">🎉</span>
-            <h3>No outstanding debts!</h3>
-            <p>All customer accounts are fully settled or no debts are currently recorded.</p>
+            <div className="clean-icon-circle">
+              <Icon name="check" size={26} />
+            </div>
+            <h3>All Accounts Cleared</h3>
+            <p>No active customer debts. When credit transactions are logged, 1-click WhatsApp follow-ups will appear here ready to dispatch.</p>
           </div>
         ) : (
           <div className="reminder-grid">

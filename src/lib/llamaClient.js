@@ -74,14 +74,14 @@ export async function parseNotebookImage(imageBase64, mimeType = 'image/jpeg') {
 }
 
 /**
- * Parse an informal Nigerian Pidgin or English voice/text instruction
- * e.g. "Musa don pay 5 thousand, remaining 2 thousand"
+ * Parse an informal colloquial or multilingual voice/text instruction
+ * e.g. "Customer Musa paid 5,000 cash this morning, balance 2,000"
  */
 export async function parseNaturalLanguageCommand(instruction, customerList = []) {
   const customerNames = customerList.map(c => c.name || c).join(', ');
 
   const prompt = `
-You are SabiLedger's Nigerian business voice parser. Convert this merchant message into a structured business action.
+You are SabiLedger's multimodal retail voice parser. Convert this merchant message (everyday colloquial speech, informal credit terms, and partial repayments) into a structured business action.
 Available customers: [${customerNames || 'Musa Abdullahi, Chioma Okafor, Tunde Ajayi, Aisha Bello'}]
 
 Instruction: "${instruction}"
