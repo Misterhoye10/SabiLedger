@@ -9,6 +9,7 @@
 [![Meta Global AI Hackathon](https://img.shields.io/badge/Meta_Global_AI_Hackathon-2026-0081FB?style=for-the-badge&logo=meta&logoColor=white)](https://cerebralvalley.ai/e/meta-ai-developer-hackathon)
 [![Powered by Llama 3.2](https://img.shields.io/badge/Model-Llama_3.2_Vision_%26_Voice-00D084?style=for-the-badge)](https://ai.meta.com/llama/)
 [![Track: Build for Your World](https://img.shields.io/badge/Track-Build_for_Your_World-F59E0B?style=for-the-badge)]()
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Vercel-black?style=for-the-badge&logo=vercel)](https://sabi-ledger.vercel.app)
 [![License: MIT](https://img.shields.io/badge/License-MIT-slate?style=for-the-badge)]()
 
 <br/>
