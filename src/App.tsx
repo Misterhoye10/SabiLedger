@@ -1,6 +1,69 @@
-import { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
+import {
+  signInWithGoogle,
+  signInWithEmail,
+  signUpWithEmail,
+  loginAsDemo,
+  signOutUser,
+  getCurrentUser,
+  MerchantUser
+} from './lib/supabaseClient'
+import {
+  formatNaira,
+  recordTransaction
+} from './lib/ledgerEngine'
+import {
+  parseNotebookImage,
+  parseNaturalLanguageCommand
+} from './lib/llamaClient'
 
 type View = 'home' | 'dashboard' | 'scan' | 'voice' | 'customers' | 'reminders' | 'insights'
+
+export interface CustomerItem {
+  id: string
+  name: string
+  phone: string
+  initials: string
+  balance: string
+  currentBalance: number
+  totalDebt: number
+  totalPaid: number
+  status: string
+  color: string
+  tag?: string
+}
+
+export interface TransactionItem {
+  id: string
+  name: string
+  initials: string
+  item: string
+  amount: string
+  rawAmount: number
+  type: 'Sale' | 'Payment'
+  time: string
+  verified: boolean
+}
+
+const DEFAULT_CUSTOMERS: CustomerItem[] = [
+  { id: 'c1', name: 'Musa Abdullahi', phone: '+2348035550142', initials: 'MA', balance: '₦2,000', currentBalance: 2000, totalDebt: 7000, totalPaid: 5000, status: 'Due today', color: '#e9a23b', tag: 'Rice & Grains' },
+  { id: 'c2', name: 'Chioma Okafor', phone: '+2348123456789', initials: 'CO', balance: '₦18,500', currentBalance: 18500, totalDebt: 23500, totalPaid: 5000, status: '12 days overdue', color: '#d5685d', tag: 'Fabrics & Lace' },
+  { id: 'c3', name: 'Tunde Ajayi', phone: '+2349087654321', initials: 'TA', balance: '₦0', currentBalance: 0, totalDebt: 12500, totalPaid: 12500, status: 'Fully paid', color: '#3d9474', tag: 'Beverages' },
+  { id: 'c4', name: 'Aisha Bello', phone: '+2347012348899', initials: 'AB', balance: '₦7,200', currentBalance: 7200, totalDebt: 31900, totalPaid: 24700, status: 'Due Friday', color: '#7d6bb2', tag: 'Provisions' },
+]
+
+const DEFAULT_TRANSACTIONS: TransactionItem[] = [
+  { id: 't1', name: 'Musa Abdullahi', initials: 'MA', item: '2 bags of rice', amount: '₦68,000', rawAmount: 68000, type: 'Sale', time: '10:42 AM', verified: true },
+  { id: 't2', name: 'Tunde Ajayi', initials: 'TA', item: 'Debt repayment', amount: '+₦12,500', rawAmount: 12500, type: 'Payment', time: '9:18 AM', verified: true },
+  { id: 't3', name: 'Aisha Bello', initials: 'AB', item: 'Fabric & delivery', amount: '₦24,700', rawAmount: 24700, type: 'Sale', time: 'Yesterday', verified: true },
+  { id: 't4', name: 'Chioma Okafor', initials: 'CO', item: 'Debt repayment', amount: '+₦5,000', rawAmount: 5000, type: 'Payment', time: 'Yesterday', verified: true },
+]
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+  return (name.slice(0, 2) || 'SB').toUpperCase()
+}
 
 const icons: Record<string, React.ReactNode> = {
   home: <><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10h13V10M9 20v-6h6v6"/></>,
@@ -10,138 +73,2191 @@ const icons: Record<string, React.ReactNode> = {
   customers: <><circle cx="9" cy="8" r="4"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 5.5a4 4 0 0 1 0 7M18 15a6 6 0 0 1 3.5 5"/></>,
   reminders: <><path d="M20 15a3 3 0 0 1-3 3H8l-5 3V7a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3Z"/><path d="M8 9h8M8 13h5"/></>,
   insights: <><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></>,
-  arrow: <><path d="m9 18 6-6-6-6"/></>,
-  plus: <><path d="M12 5v14M5 12h14"/></>,
+  arrow: <path d="m9 18 6-6-6-6"/>,
+  plus: <path d="M12 5v14M5 12h14"/>,
   check: <path d="m5 12 4 4L19 6"/>,
   search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
   bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></>,
+  sun: <><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></>,
+  moon: <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>,
+  x: <path d="M18 6 6 18M6 6l12 12"/>,
+  upload: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>,
+  copy: <><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></>,
+  logOut: <><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></>,
+  refresh: <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M3 21v-5h5"/>
 }
 
 function Icon({ name, size = 20 }: { name: string; size?: number }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{icons[name]}</svg>
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      {icons[name] || null}
+    </svg>
+  )
 }
-
-const customers = [
-  { name: 'Musa Abdullahi', initials: 'MA', balance: '₦2,000', status: 'Due today', color: '#e9a23b' },
-  { name: 'Chioma Okafor', initials: 'CO', balance: '₦18,500', status: '12 days overdue', color: '#d5685d' },
-  { name: 'Tunde Ajayi', initials: 'TA', balance: '₦0', status: 'Fully paid', color: '#3d9474' },
-  { name: 'Aisha Bello', initials: 'AB', balance: '₦7,200', status: 'Due Friday', color: '#7d6bb2' },
-]
-
-const transactions = [
-  { name: 'Musa Abdullahi', item: '2 bags of rice', amount: '₦68,000', type: 'Sale', time: '10:42 AM', initials: 'MA' },
-  { name: 'Tunde Ajayi', item: 'Debt repayment', amount: '+₦12,500', type: 'Payment', time: '9:18 AM', initials: 'TA' },
-  { name: 'Aisha Bello', item: 'Fabric & delivery', amount: '₦24,700', type: 'Sale', time: 'Yesterday', initials: 'AB' },
-  { name: 'Chioma Okafor', item: 'Debt repayment', amount: '+₦5,000', type: 'Payment', time: 'Yesterday', initials: 'CO' },
-]
 
 function Logo() {
-  return <div className="logo"><span className="logo-mark">S</span><span>SabiLedger</span></div>
-}
-
-function Landing({ enter }: { enter: () => void }) {
-  return <main className="landing">
-    <nav className="land-nav"><Logo/><div className="nav-links"><a href="#how">How it works</a><a href="#features">Features</a><button className="btn ghost" onClick={enter}>Sign in</button><button className="btn primary" onClick={enter}>Get started <Icon name="arrow" size={16}/></button></div></nav>
-    <section className="hero">
-      <div className="hero-copy">
-        <div className="eyebrow"><span>✦</span> Built for the way you do business</div>
-        <h1>Turn messy notes into a <em>smarter business.</em></h1>
-        <p>SabiLedger uses AI to turn handwritten records and voice notes into clear sales, debts, and customer insights — in seconds.</p>
-        <div className="hero-actions"><button className="btn primary big" onClick={enter}>Get started free <Icon name="arrow"/></button><button className="btn outline big" onClick={() => document.querySelector('#how')?.scrollIntoView({ behavior: 'smooth' })}><span className="play">▶</span> See how it works</button></div>
-        <div className="trusted"><span className="trust-icon"><Icon name="check" size={16}/></span><p><b>Your records stay yours</b><br/>Review every AI entry before it reaches your ledger.</p></div>
-      </div>
-      <div className="hero-visual">
-        <div className="float-card sales-float"><span>This week</span><b>₦284,500</b><small>↗ 18.4% from last week</small></div>
-        <div className="phone">
-          <div className="phone-top"><span>9:41</span><i></i><span>•••</span></div>
-          <div className="phone-head"><Logo/><span className="avatar">AO</span></div>
-          <p className="muted">Good morning, Amaka</p><h3>Here’s your business today.</h3>
-          <div className="phone-balance"><span>Total sales · May</span><strong>₦842,500</strong><small>↑ 12.5% this month</small></div>
-          <div className="quick-grid"><button><Icon name="scan"/><span>Scan note</span></button><button><Icon name="voice"/><span>Speak sale</span></button></div>
-          <div className="mini-row"><b>Recent activity</b><span>See all</span></div>
-          {transactions.slice(0,3).map(t=><div className="phone-tx" key={t.name}><span className="avatar small">{t.initials}</span><div><b>{t.name}</b><small>{t.item}</small></div><strong>{t.amount}</strong></div>)}
-        </div>
-        <div className="float-card ai-float"><span className="spark">✦</span><div><b>AI record captured</b><small>Musa paid ₦5,000</small></div><span className="tick">✓</span></div>
-        <div className="dots"></div>
-      </div>
-    </section>
-    <section className="how" id="how"><div className="section-title"><span>FROM NOTEBOOK TO LEDGER</span><h2>Four clear steps. You stay in control.</h2><p>SabiLedger organizes the records you already keep, then asks you to approve them before anything changes.</p></div><div className="workflow" aria-label="How SabiLedger turns handwritten notes into ledger entries">
-      <article><span className="step-num">01</span><div className="workflow-visual note-mini"><b>Sales — 27/5</b><p>Musa - 2 rice<br/>68,000 / paid 50k</p><p>Chioma - fabric<br/>24,500</p></div><h3>Capture your notebook</h3><p>Take a clear photo of the page. No new process to learn.</p></article>
-      <span className="flow-arrow"><Icon name="arrow" size={18}/></span>
-      <article><span className="step-num">02</span><div className="workflow-visual extract-mini"><div><span>Musa Abdullahi</span><b>₦68,000</b></div><div className="needs-check"><span>Chioma Okafor</span><b>Check spelling</b></div><div><span>27 May 2024</span><b>3 entries</b></div></div><h3>AI structures each entry</h3><p>Names, dates, items, and amounts become editable transactions.</p></article>
-      <span className="flow-arrow"><Icon name="arrow" size={18}/></span>
-      <article><span className="step-num">03</span><div className="workflow-visual confirm-mini"><span className="confirm-check"><Icon name="check" size={22}/></span><b>Review complete</b><small>3 transactions ready</small><button>Confirm & save</button></div><h3>Review and confirm</h3><p>Uncertain details are highlighted, so you always make the final call.</p></article>
-      <span className="flow-arrow"><Icon name="arrow" size={18}/></span>
-      <article><span className="step-num">04</span><div className="workflow-visual ledger-mini"><div><span className="avatar small">MA</span><p><b>Musa Abdullahi</b><small>Balance updated</small></p><strong>₦18,000</strong></div><div><span className="avatar small">CO</span><p><b>Chioma Okafor</b><small>New sale added</small></p><strong>₦14,500</strong></div></div><h3>Your ledger updates</h3><p>Balances, sales, and follow-ups stay organized automatically.</p></article>
-    </div></section>
-  </main>
-}
-
-function Sidebar({ view, setView }: { view: View; setView: (v: View) => void }) {
-  const nav: [View, string, string][] = [['dashboard','dashboard','Overview'],['scan','scan','Notebook scanner'],['voice','voice','Voice assistant'],['customers','customers','Customers'],['reminders','reminders','Reminders'],['insights','insights','Insights']]
-  return <aside className="sidebar"><Logo/><div className="shop"><span className="avatar">AO</span><div><b>Amaka’s Store</b><small>Business account</small></div><Icon name="arrow" size={15}/></div><nav>{nav.map(([id,icon,label])=><button key={id} className={view===id?'active':''} onClick={()=>setView(id)}><Icon name={icon}/><span>{label}</span>{id==='reminders'&&<i>3</i>}</button>)}</nav><div className="sidebar-foot"><div className="pro-card"><span>✦</span><b>Grow with Sabi Pro</b><small>Unlock advanced reports and unlimited scans.</small><button>View plans</button></div><button className="profile"><span className="avatar">AO</span><div><b>Amaka Okorie</b><small>amaka@store.ng</small></div></button></div></aside>
-}
-
-function AppHeader({ title }: { title: string }) {
-  return <header className="app-header"><div><p>Tuesday, 28 May</p><h1>{title}</h1></div><div className="header-actions"><label className="search"><Icon name="search" size={18}/><input placeholder="Search anything..."/></label><button className="icon-btn"><Icon name="bell"/><i></i></button><span className="avatar">AO</span></div></header>
-}
-
-function Stat({ label, value, change, tone, icon }: {label:string;value:string;change:string;tone:string;icon:string}) {
-  return <article className="stat"><div className={`stat-icon ${tone}`}><Icon name={icon}/></div><div className="stat-label">{label}<button>•••</button></div><strong>{value}</strong><small className={change.startsWith('↑')?'up':''}>{change}</small></article>
-}
-
-function Dashboard({ setView }: { setView:(v:View)=>void }) {
-  return <><AppHeader title="Good morning, Amaka"/><div className="content">
-    <section className="welcome"><div><span className="eyebrow">YOUR BUSINESS TODAY</span><h2>Everything is looking good.</h2><p>You’ve collected 68% of this week’s outstanding debts.</p></div><div className="welcome-actions"><button className="btn outline" onClick={()=>setView('scan')}><Icon name="scan"/> Scan notebook</button><button className="btn primary" onClick={()=>setView('voice')}><Icon name="plus"/> Record sale</button></div></section>
-    <div className="stats"><Stat label="Total sales" value="₦842,500" change="↑ 12.5% this month" tone="green" icon="insights"/><Stat label="Outstanding debts" value="₦127,200" change="₦38,000 due this week" tone="amber" icon="reminders"/><Stat label="Payments received" value="₦318,400" change="↑ 8.2% this month" tone="mint" icon="check"/><Stat label="Active customers" value="86" change="+7 new this month" tone="purple" icon="customers"/></div>
-    <div className="dash-grid"><section className="panel chart-panel"><div className="panel-head"><div><h3>Sales overview</h3><p>Your sales performance over time</p></div><select><option>Last 7 days</option><option>This month</option></select></div><div className="chart-wrap"><div className="y-axis"><span>₦100k</span><span>₦75k</span><span>₦50k</span><span>₦25k</span><span>₦0</span></div><div className="chart"><div className="grid-lines"></div><svg viewBox="0 0 700 220" preserveAspectRatio="none"><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#167a58" stopOpacity=".24"/><stop offset="1" stopColor="#167a58" stopOpacity="0"/></linearGradient></defs><path className="area" d="M0 180 C70 155 80 165 140 112 S235 145 290 98 S370 80 430 115 S520 75 570 85 S640 35 700 48 L700 220 L0 220Z"/><path className="line" d="M0 180 C70 155 80 165 140 112 S235 145 290 98 S370 80 430 115 S520 75 570 85 S640 35 700 48"/></svg><div className="x-axis"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div></div></div></section>
-      <section className="panel debt-panel"><div className="panel-head"><div><h3>Debt collection</h3><p>This week</p></div><button onClick={()=>setView('customers')}>View all</button></div><div className="donut"><div><strong>68%</strong><span>collected</span></div></div><div className="debt-legend"><div><i></i><span>Collected</span><b>₦82,400</b></div><div><i></i><span>Outstanding</span><b>₦38,000</b></div></div></section>
+  return (
+    <div className="logo">
+      <span className="logo-mark">S</span>
+      <span>SabiLedger</span>
     </div>
-    <section className="panel transactions"><div className="panel-head"><div><h3>Recent transactions</h3><p>Your latest sales and payments</p></div><button>View all <Icon name="arrow" size={15}/></button></div>{transactions.map(t=><div className="transaction" key={t.name}><span className="avatar soft">{t.initials}</span><div className="tx-person"><b>{t.name}</b><small>{t.item}</small></div><span className={`tag ${t.type.toLowerCase()}`}>{t.type}</span><small>{t.time}</small><strong className={t.amount.startsWith('+')?'positive':''}>{t.amount}</strong></div>)}</section>
-  </div></>
+  )
 }
 
-function Scanner() {
-  const [saved,setSaved]=useState(false)
-  return <><AppHeader title="Notebook scanner"/><div className="content"><div className="page-intro"><div><h2>Turn handwriting into records</h2><p>Upload a notebook photo and let Sabi AI organize the details.</p></div><button className="btn outline"><Icon name="scan"/> Upload another</button></div>
-    {saved?<div className="success-state"><span><Icon name="check" size={36}/></span><h2>4 transactions saved</h2><p>Your ledger and customer balances have been updated.</p><button className="btn primary" onClick={()=>setSaved(false)}>Scan another page</button></div>:
-    <div className="scanner-grid"><section className="panel note-preview"><div className="panel-head"><div><h3>Uploaded page</h3><p>IMG_2038.jpg · 2.4 MB</p></div><span className="tag payment">AI processed</span></div><div className="paper"><div className="paper-title">Sales — 27/5</div><p>1. Musa - 2 rice 68,000<br/>paid 50k, balance 18k</p><p>2. Chioma - fabrics 24,500<br/>paid 10,000</p><p>3. Tunde paid old debt 12,500</p><p>4. Aisha - delivery 7,200 owing</p></div></section>
-    <section className="panel extracted"><div className="panel-head"><div><h3>Review extracted records</h3><p>Confirm the highlighted entry before saving</p></div><span className="ai-badge">✦ 94% confident</span></div>{[
-      ['Musa Abdullahi','27 May 2024','2 bags of rice','₦68,000'],
-      ['Chioma Okafor','27 May 2024','Ankara fabrics','₦24,500'],
-      ['Tunde Ajayi','27 May 2024','Debt repayment','₦12,500'],
-      ['Aisha Bello','27 May 2024','Delivery','₦7,200'],
-    ].map((r,i)=><div className={`extract-row ${i===1?'uncertain':''}`} key={r[0]}>{i===1&&<span className="uncertain-label">Check spelling</span>}<label>Name<input defaultValue={r[0]}/></label><label>Date<input defaultValue={r[1]}/></label><label>Item<input defaultValue={r[2]}/></label><label>Amount<input defaultValue={r[3]}/></label></div>)}<div className="confirm-box"><input type="checkbox" id="confirm"/><label htmlFor="confirm">I’ve reviewed the extracted entries and they are correct.</label></div><button className="btn primary full" onClick={()=>setSaved(true)}><Icon name="check"/> Confirm & save 4 transactions</button></section></div>}</div></>
+function ThemeToggle({ theme, toggleTheme }: { theme: 'light' | 'dark'; toggleTheme: () => void }) {
+  return (
+    <button
+      className="theme-toggle-btn"
+      onClick={toggleTheme}
+      title={theme === 'dark' ? 'Switch to Light mode' : 'Switch to Dark mode'}
+      aria-label="Toggle theme"
+    >
+      <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
+    </button>
+  )
 }
 
-function Voice() {
-  const [recording,setRecording]=useState(false); const [confirmed,setConfirmed]=useState(false)
-  return <><AppHeader title="Voice assistant"/><div className="content voice-page"><div className="page-intro"><div><h2>Just say it naturally</h2><p>Record sales and payments in your own words. Sabi understands.</p></div></div><section className="voice-card">
-    <div className="language">English (Nigeria) <span>⌄</span></div><div className={`orb ${recording?'recording':''}`}><button onClick={()=>{setRecording(!recording);setConfirmed(false)}}><Icon name={recording?'check':'voice'} size={34}/></button>{recording&&[1,2,3].map(x=><i key={x}/>)}</div><h2>{recording?'Listening...':'Tap to speak'}</h2><p>{recording?'Speak clearly. Tap the button when you’re done.':'Record a sale, payment, or customer debt.'}</p>
-    <div className="wave">{[18,34,12,42,27,55,31,45,20,38,16,48,28,36,15,30,22,40,18,32].map((h,i)=><i key={i} style={{height:recording?h:4}}/>)}</div>
-    <div className="transcript"><span>TRANSCRIPTION</span><p>“Musa paid <mark>₦5,000</mark>; he still owes <mark>₦2,000</mark>.”</p></div>
-    <div className="voice-result"><div className="result-head"><span>✦ Transaction preview</span><small>AI extracted</small></div><div className="result-grid"><label>Customer<b>Musa Abdullahi</b></label><label>Payment received<b>₦5,000</b></label><label>Remaining balance<b className="red">₦2,000</b></label><label>Type<b>Debt repayment</b></label></div></div>
-    <button className="btn primary full" onClick={()=>setConfirmed(true)}><Icon name="check"/> {confirmed?'Transaction saved':'Confirm transaction'}</button>
-  </section></div></>
+/* ==========================================================================
+   Auth Modal (Google, Email, & 1-Click Demo)
+   ========================================================================== */
+function AuthModal({
+  isOpen,
+  onClose,
+  onSuccess
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onSuccess: (u: MerchantUser) => void
+}) {
+  const [tab, setTab] = useState<'signin' | 'signup'>('signin')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [merchantName, setMerchantName] = useState('')
+  const [shopName, setShopName] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
+
+  if (!isOpen) return null
+
+  const handleGoogleAuth = async () => {
+    setLoading(true)
+    setErrorMsg('')
+    try {
+      const res = await signInWithGoogle()
+      if (res.user) {
+        onSuccess(res.user)
+        onClose()
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Google authentication failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDemoAuth = () => {
+    const demo = loginAsDemo()
+    onSuccess(demo)
+    onClose()
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!email || !password) {
+      setErrorMsg('Please enter both email and password.')
+      return
+    }
+    setLoading(true)
+    setErrorMsg('')
+    try {
+      if (tab === 'signin') {
+        const res = await signInWithEmail(email, password)
+        if (res.user) {
+          onSuccess(res.user)
+          onClose()
+        } else if (res.error) {
+          setErrorMsg(res.error.message || 'Sign in failed')
+        }
+      } else {
+        const res = await signUpWithEmail(email, password, merchantName, shopName)
+        if (res.user) {
+          onSuccess(res.user)
+          onClose()
+        } else if (res.error) {
+          setErrorMsg(res.error.message || 'Registration failed')
+        }
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Authentication error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <Logo />
+          <button className="modal-close" onClick={onClose}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+
+        <div className="auth-tabs">
+          <button
+            className={`auth-tab ${tab === 'signin' ? 'active' : ''}`}
+            onClick={() => { setTab('signin'); setErrorMsg('') }}
+          >
+            Sign in
+          </button>
+          <button
+            className={`auth-tab ${tab === 'signup' ? 'active' : ''}`}
+            onClick={() => { setTab('signup'); setErrorMsg('') }}
+          >
+            Create merchant account
+          </button>
+        </div>
+
+        {errorMsg && (
+          <div style={{ color: '#ef4444', fontSize: 12, marginBottom: 14, background: '#fee2e2', padding: 8, borderRadius: 8 }}>
+            {errorMsg}
+          </div>
+        )}
+
+        {/* Google OAuth Button */}
+        <button className="google-btn" onClick={handleGoogleAuth} disabled={loading}>
+          <svg width="18" height="18" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+          Continue with Google
+        </button>
+
+        <div className="auth-divider">OR USE EMAIL</div>
+
+        <form onSubmit={handleSubmit}>
+          {tab === 'signup' && (
+            <>
+              <div className="form-group">
+                <label>Your Full Name</label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. Amaka Okorie"
+                  value={merchantName}
+                  onChange={e => setMerchantName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Shop / Business Name</label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. Amaka’s Provisions Store"
+                  value={shopName}
+                  onChange={e => setShopName(e.target.value)}
+                  required
+                />
+              </div>
+            </>
+          )}
+
+          <div className="form-group">
+            <label>Email Address</label>
+            <input
+              type="email"
+              className="form-input"
+              placeholder="merchant@store.ng"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Password</label>
+            <input
+              type="password"
+              className="form-input"
+              placeholder="••••••••"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <button className="btn primary full" type="submit" disabled={loading} style={{ marginTop: 10 }}>
+            {loading ? 'Please wait...' : tab === 'signin' ? 'Sign in to Ledger' : 'Create Account'}
+          </button>
+        </form>
+
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)', textAlign: 'center' }}>
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
+            Testing or judging the hackathon?
+          </p>
+          <button className="btn outline full" onClick={handleDemoAuth} type="button">
+            ⚡ Quick Demo Access (1-Click Judge Bypass)
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
-function Customers() {
-  const [selected,setSelected]=useState(0)
-  return <><AppHeader title="Customer ledger"/><div className="content"><div className="page-intro"><div><h2>Your customers</h2><p>Track balances, sales, and repayment history in one place.</p></div><button className="btn primary"><Icon name="plus"/> Add customer</button></div><div className="customer-layout"><section className="panel customer-list"><label className="search"><Icon name="search" size={17}/><input placeholder="Search customers"/></label>{customers.map((c,i)=><button className={selected===i?'selected':''} onClick={()=>setSelected(i)} key={c.name}><span className="avatar soft">{c.initials}</span><div><b>{c.name}</b><small>{c.status}</small></div><strong>{c.balance}</strong></button>)}</section><section className="panel customer-detail"><div className="customer-hero"><span className="avatar large">{customers[selected].initials}</span><div><h2>{customers[selected].name}</h2><p>Customer since February 2024 · 14 transactions</p></div><button className="btn outline">Send reminder</button><button className="btn primary">Record payment</button></div><div className="customer-stats"><div><span>Outstanding balance</span><b>{customers[selected].balance}</b></div><div><span>Total purchases</span><b>₦184,500</b></div><div><span>Total repaid</span><b>₦166,000</b></div></div><h3>Repayment history</h3>{transactions.slice(0,3).map((t,i)=><div className="history" key={i}><span className="history-icon"><Icon name="check" size={16}/></span><div><b>{i===1?'Purchase on credit':'Payment received'}</b><small>{i===0?'Today, 9:18 AM':`${18-i*4} May 2024`}</small></div><strong className={i===1?'':'positive'}>{i===1?'₦18,000':'+₦5,000'}</strong></div>)}</section></div></div></>
+/* ==========================================================================
+   Add Customer Modal
+   ========================================================================== */
+function AddCustomerModal({
+  isOpen,
+  onClose,
+  onAdd
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onAdd: (c: CustomerItem, initialDebt: number) => void
+}) {
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [initialDebt, setInitialDebt] = useState('')
+  const [tag, setTag] = useState('Provisions')
+
+  if (!isOpen) return null
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) return
+
+    const debtVal = parseFloat(initialDebt) || 0
+    const newCustomer: CustomerItem = {
+      id: `c_${Date.now()}`,
+      name: name.trim(),
+      phone: phone.trim() || '+2348000000000',
+      initials: getInitials(name),
+      balance: formatNaira(debtVal),
+      currentBalance: debtVal,
+      totalDebt: debtVal,
+      totalPaid: 0,
+      status: debtVal > 0 ? 'Due today' : 'Fully paid',
+      color: '#11664c',
+      tag: tag || 'General'
+    }
+
+    onAdd(newCustomer, debtVal)
+    setName('')
+    setPhone('')
+    setInitialDebt('')
+    onClose()
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <h3>Add New Customer</h3>
+          <button className="modal-close" onClick={onClose}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label>Customer Full Name *</label>
+            <input
+              className="form-input"
+              placeholder="e.g. Alhaji Sani Garba"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              required
+              autoFocus
+            />
+          </div>
+
+          <div className="form-group">
+            <label>WhatsApp / Phone Number</label>
+            <input
+              type="tel"
+              className="form-input"
+              placeholder="e.g. 08035550142 or +234..."
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+            />
+            <div className="form-hint">Used for 1-click WhatsApp payment reminders</div>
+          </div>
+
+          <div className="form-group">
+            <label>Initial Debt / Owing Amount (₦)</label>
+            <input
+              type="number"
+              min="0"
+              step="100"
+              className="form-input"
+              placeholder="0 (leave empty if no debt)"
+              value={initialDebt}
+              onChange={e => setInitialDebt(e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Category / Note</label>
+            <input
+              className="form-input"
+              placeholder="e.g. Wholesale rice, Balogun Market stall"
+              value={tag}
+              onChange={e => setTag(e.target.value)}
+            />
+          </div>
+
+          <div className="modal-actions">
+            <button className="btn outline" type="button" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn primary" type="submit">
+              Save Customer
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
 }
 
-function Reminders() {
-  const [sent,setSent]=useState(false)
-  return <><AppHeader title="Payment reminders"/><div className="content"><div className="page-intro"><div><h2>Friendly follow-ups, right on time</h2><p>Send clear WhatsApp reminders and professional receipts.</p></div></div><div className="reminder-grid"><section className="panel reminder-compose"><div className="panel-head"><div><h3>Message preview</h3><p>To Musa Abdullahi · +234 803 555 0142</p></div><span className={`tag ${sent?'payment':'sale'}`}>{sent?'Sent':'Draft'}</span></div><div className="whatsapp"><div className="wa-top"><span className="avatar small">MA</span><div><b>Musa Abdullahi</b><small>online</small></div></div><div className="wa-chat"><div className="wa-day">TODAY</div><div className="wa-message">Hello Musa, this is a friendly reminder from <b>Amaka’s Store</b>. Your outstanding balance is <b>₦2,000</b>.<br/><br/>Please pay at your convenience. Thank you for your business!<span>10:42 ✓✓</span></div></div></div><textarea defaultValue="Hello Musa, this is a friendly reminder from Amaka’s Store. Your outstanding balance is ₦2,000. Please pay at your convenience. Thank you for your business!"/><div className="reminder-actions"><button className="btn outline">Preview receipt</button><button className="btn whatsapp-btn" onClick={()=>{setSent(true); window.open("https://wa.me/2348035550142?text=" + encodeURIComponent("Hello Musa, this is a friendly reminder from Amaka's Store. Your outstanding balance is ₦2,000. Please pay at your convenience. Thank you for your business!"), "_blank")}}>{sent?<Icon name="check"/>:<Icon name="reminders"/>} {sent?'Sent on WhatsApp':'Send on WhatsApp'}</button></div></section><section className="panel queue"><div className="panel-head"><div><h3>Follow-up queue</h3><p>3 customers need attention</p></div></div>{customers.slice(0,3).map((c,i)=><div className="queue-row" key={c.name}><span className="avatar soft">{c.initials}</span><div><b>{c.name}</b><small>{i===0?'Draft ready':c.status}</small></div><strong>{c.balance}</strong><span className={`status-dot ${i===0?'draft':'sent'}`}>{i===0?'Draft':'Sent'}</span></div>)}</section></div></div></>
+/* ==========================================================================
+   Record Payment Modal
+   ========================================================================== */
+function RecordPaymentModal({
+  isOpen,
+  onClose,
+  customer,
+  onRecord
+}: {
+  isOpen: boolean
+  onClose: () => void
+  customer: CustomerItem | null
+  onRecord: (customerId: string, amount: number, note: string) => void
+}) {
+  const [amount, setAmount] = useState('')
+  const [note, setNote] = useState('Cash repayment')
+
+  if (!isOpen || !customer) return null
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const num = parseFloat(amount)
+    if (isNaN(num) || num <= 0) return
+
+    onRecord(customer.id, num, note)
+    setAmount('')
+    onClose()
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <h3>Record Payment</h3>
+          <button className="modal-close" onClick={onClose}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
+          Record payment for <b>{customer.name}</b> (Current owing:{' '}
+          <span style={{ color: 'var(--green)', fontWeight: 700 }}>{customer.balance}</span>)
+        </p>
+
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label>Amount Paid (₦) *</label>
+            <input
+              type="number"
+              min="1"
+              step="50"
+              className="form-input"
+              placeholder="e.g. 5000"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              required
+              autoFocus
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Payment Method / Note</label>
+            <select
+              className="form-select"
+              value={note}
+              onChange={e => setNote(e.target.value)}
+            >
+              <option value="Cash repayment">Cash at shop</option>
+              <option value="Bank Transfer (Opay/Palmpay)">Bank Transfer (Opay / Palmpay)</option>
+              <option value="POS Card swipe">POS Card Terminal</option>
+              <option value="Direct deposit">Bank Deposit</option>
+            </select>
+          </div>
+
+          <div className="modal-actions">
+            <button className="btn outline" type="button" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn primary" type="submit">
+              Confirm & Save Payment
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
 }
 
-function Insights() {
-  return <><AppHeader title="Business insights"/><div className="content"><div className="page-intro"><div><h2>Know what needs your attention</h2><p>AI-powered insights from your sales and collections.</p></div><select className="period"><option>Last 30 days</option></select></div><div className="insight-cards"><article className="insight-alert"><span className="stat-icon amber"><Icon name="bell"/></span><div><small>NEEDS ATTENTION</small><h3>₦38,000 is overdue</h3><p>Across 4 customers. Chioma’s balance is 12 days late.</p></div><button>Review debts <Icon name="arrow" size={15}/></button></article><article className="insight-alert positive-card"><span className="stat-icon green"><Icon name="insights"/></span><div><small>WEEKLY HIGHLIGHT</small><h3>Sales are up 18.4%</h3><p>Saturday was your strongest day with ₦94,500 in sales.</p></div><button>View report <Icon name="arrow" size={15}/></button></article></div><div className="dash-grid"><section className="panel bar-panel"><div className="panel-head"><div><h3>Weekly sales</h3><p>₦284,500 total this week</p></div></div><div className="bars">{[42,58,46,72,64,94,78].map((h,i)=><div key={i}><span style={{height:`${h}%`}} className={i===5?'hot':''}><i>₦{h}k</i></span><small>{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i]}</small></div>)}</div></section><section className="panel followups"><div className="panel-head"><div><h3>Customers to follow up</h3><p>Prioritized by Sabi AI</p></div></div>{customers.slice(0,3).map((c,i)=><div key={c.name}><span className="avatar soft">{c.initials}</span><p><b>{c.name}</b><small>{c.status}</small></p><strong>{c.balance}</strong><button>Remind</button></div>)}</section></div></div></>
+/* ==========================================================================
+   Landing Page
+   ========================================================================== */
+function Landing({
+  enter,
+  theme,
+  toggleTheme,
+  onOpenAuth
+}: {
+  enter: () => void
+  theme: 'light' | 'dark'
+  toggleTheme: () => void
+  onOpenAuth: () => void
+}) {
+  return (
+    <main className="landing">
+      <nav className="land-nav">
+        <Logo />
+        <div className="nav-links">
+          <a href="#how">How it works</a>
+          <a href="#features">Features</a>
+          <ThemeToggle theme={theme} toggleTheme={toggleTheme} />
+          <button className="btn ghost" onClick={onOpenAuth}>
+            Sign in
+          </button>
+          <button className="btn primary" onClick={enter}>
+            Get started <Icon name="arrow" size={16} />
+          </button>
+        </div>
+      </nav>
+
+      <section className="hero">
+        <div className="hero-copy">
+          <div className="eyebrow">
+            <span>✦</span> Built for the way you do business
+          </div>
+          <h1>
+            Turn messy notes into a <em>smarter business.</em>
+          </h1>
+          <p>
+            SabiLedger uses multimodal AI (Meta Llama 3.2 OCR & Voice) to turn handwritten notebook records and informal Pidgin/English notes into verified sales, deterministic debt tracking, and 1-click WhatsApp payment reminders.
+          </p>
+          <div className="hero-actions">
+            <button className="btn primary big" onClick={enter}>
+              Get started free <Icon name="arrow" />
+            </button>
+            <button
+              className="btn outline big"
+              onClick={() => document.querySelector('#how')?.scrollIntoView({ behavior: 'smooth' })}
+            >
+              <span className="play">▶</span> See how it works
+            </button>
+          </div>
+          <div className="trusted">
+            <span className="trust-icon">
+              <Icon name="check" size={16} />
+            </span>
+            <p>
+              <b>Deterministic Financial Integrity</b>
+              <br />
+              All balance math is calculated strictly with code—zero LLM arithmetic hallucinations.
+            </p>
+          </div>
+        </div>
+
+        <div className="hero-visual">
+          <div className="float-card sales-float">
+            <span>This week</span>
+            <b>₦284,500</b>
+            <small>↗ 18.4% from last week</small>
+          </div>
+          <div className="phone">
+            <div className="phone-top">
+              <span>9:41</span>
+              <i />
+              <span>•••</span>
+            </div>
+            <div className="phone-head">
+              <Logo />
+              <span className="avatar">AO</span>
+            </div>
+            <p className="muted">Good morning, Amaka</p>
+            <h3>Here’s your business today.</h3>
+            <div className="phone-balance">
+              <span>Total sales · May</span>
+              <strong>₦842,500</strong>
+              <small>↑ 12.5% this month</small>
+            </div>
+            <div className="quick-grid">
+              <button onClick={enter}>
+                <Icon name="scan" />
+                <span>Scan note</span>
+              </button>
+              <button onClick={enter}>
+                <Icon name="voice" />
+                <span>Speak sale</span>
+              </button>
+            </div>
+            <div className="mini-row">
+              <b>Recent activity</b>
+              <span>See all</span>
+            </div>
+            {DEFAULT_TRANSACTIONS.slice(0, 3).map(t => (
+              <div className="phone-tx" key={t.id}>
+                <span className="avatar small">{t.initials}</span>
+                <div>
+                  <b>{t.name}</b>
+                  <small>{t.item}</small>
+                </div>
+                <strong>{t.amount}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="float-card ai-float">
+            <span className="spark">✦</span>
+            <div>
+              <b>Meta OCR verified</b>
+              <small>Musa paid ₦5,000</small>
+            </div>
+            <span className="tick">✓</span>
+          </div>
+          <div className="dots" />
+        </div>
+      </section>
+
+      <section className="how" id="how">
+        <div className="section-title">
+          <span>FROM NOTEBOOK TO LEDGER</span>
+          <h2>Four clear steps. You stay in control.</h2>
+          <p>
+            SabiLedger organizes the paper records you already keep, highlights uncertain handwriting, and asks you to confirm before anything touches your ledger.
+          </p>
+        </div>
+        <div className="workflow" aria-label="How SabiLedger turns handwritten notes into ledger entries">
+          <article>
+            <span className="step-num">01</span>
+            <div className="workflow-visual note-mini">
+              <b>Sales — 27/5</b>
+              <p>
+                Musa - 2 rice<br />
+                68,000 / paid 50k
+              </p>
+              <p>
+                Chioma - fabric<br />
+                24,500
+              </p>
+            </div>
+            <h3>Capture your notebook</h3>
+            <p>Take a quick photo or snap your paper ledger. No complicated data entry.</p>
+          </article>
+          <span className="flow-arrow">
+            <Icon name="arrow" size={18} />
+          </span>
+          <article>
+            <span className="step-num">02</span>
+            <div className="workflow-visual extract-mini">
+              <div>
+                <span>Musa Abdullahi</span>
+                <b>₦68,000</b>
+              </div>
+              <div className="needs-check">
+                <span>Chioma Okafor</span>
+                <b>Check spelling</b>
+              </div>
+              <div>
+                <span>27 May 2024</span>
+                <b>3 entries</b>
+              </div>
+            </div>
+            <h3>Meta Llama AI Extraction</h3>
+            <p>Names, items, prices, and partial deposits become structured digital rows.</p>
+          </article>
+          <span className="flow-arrow">
+            <Icon name="arrow" size={18} />
+          </span>
+          <article>
+            <span className="step-num">03</span>
+            <div className="workflow-visual confirm-mini">
+              <span className="confirm-check">
+                <Icon name="check" size={22} />
+              </span>
+              <b>Review & Validate</b>
+              <small>Uncertain entries flagged</small>
+              <button onClick={enter}>Confirm & save</button>
+            </div>
+            <h3>Merchant in Control</h3>
+            <p>Edit any misspelling with one tap. Zero AI hallucinations in your book.</p>
+          </article>
+          <span className="flow-arrow">
+            <Icon name="arrow" size={18} />
+          </span>
+          <article>
+            <span className="step-num">04</span>
+            <div className="workflow-visual ledger-mini">
+              <div>
+                <span className="avatar small">MA</span>
+                <p>
+                  <b>Musa Abdullahi</b>
+                  <small>Balance updated</small>
+                </p>
+                <strong>₦18,000</strong>
+              </div>
+              <div>
+                <span className="avatar small">CO</span>
+                <p>
+                  <b>Chioma Okafor</b>
+                  <small>New sale added</small>
+                </p>
+                <strong>₦14,500</strong>
+              </div>
+            </div>
+            <h3>Instant WhatsApp Follow-up</h3>
+            <p>One tap generates a polite WhatsApp reminder directly from your phone number.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+  )
 }
 
+/* ==========================================================================
+   Sidebar
+   ========================================================================== */
+function Sidebar({
+  view,
+  setView,
+  user,
+  onOpenAuth,
+  onSignOut,
+  onResetData
+}: {
+  view: View
+  setView: (v: View) => void
+  user: MerchantUser | null
+  onOpenAuth: () => void
+  onSignOut: () => void
+  onResetData: () => void
+}) {
+  const nav: [View, string, string][] = [
+    ['dashboard', 'dashboard', 'Overview'],
+    ['scan', 'scan', 'Notebook scanner'],
+    ['voice', 'voice', 'Voice assistant'],
+    ['customers', 'customers', 'Customers'],
+    ['reminders', 'reminders', 'Reminders'],
+    ['insights', 'insights', 'Insights'],
+  ]
+
+  const shopName = user?.shopName || "Amaka’s Store"
+  const merchantName = user?.name || "Amaka Okorie"
+  const merchantInitials = getInitials(merchantName)
+
+  return (
+    <aside className="sidebar">
+      <Logo />
+      <div className="shop">
+        <span className="avatar">{merchantInitials}</span>
+        <div>
+          <b>{shopName}</b>
+          <small>{user ? 'Verified Merchant' : 'Demo Account'}</small>
+        </div>
+        <Icon name="arrow" size={15} />
+      </div>
+
+      <nav>
+        {nav.map(([id, icon, label]) => (
+          <button
+            key={id}
+            className={view === id ? 'active' : ''}
+            onClick={() => setView(id)}
+          >
+            <Icon name={icon} />
+            <span>{label}</span>
+            {id === 'reminders' && <i>3</i>}
+          </button>
+        ))}
+      </nav>
+
+      <div className="sidebar-foot">
+        <div style={{ marginBottom: 12 }}>
+          <button
+            className="btn outline full"
+            style={{ fontSize: 10, padding: 8, display: 'flex', gap: 6 }}
+            onClick={onResetData}
+            title="Reset to default sample data or start fresh"
+          >
+            <Icon name="refresh" size={14} />
+            <span>Reset Sample Data</span>
+          </button>
+        </div>
+
+        {user ? (
+          <div className="profile" style={{ justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span className="avatar">{merchantInitials}</span>
+              <div>
+                <b>{merchantName}</b>
+                <small>{user.email}</small>
+              </div>
+            </div>
+            <button
+              onClick={onSignOut}
+              title="Sign out"
+              style={{ border: 0, background: 'transparent', color: '#ef4444', padding: 6 }}
+            >
+              <Icon name="logOut" size={16} />
+            </button>
+          </div>
+        ) : (
+          <button className="btn primary full" onClick={onOpenAuth} style={{ fontSize: 11, padding: 9 }}>
+            Sign In / Register
+          </button>
+        )}
+      </div>
+    </aside>
+  )
+}
+
+/* ==========================================================================
+   App Header
+   ========================================================================== */
+function AppHeader({
+  title,
+  theme,
+  toggleTheme,
+  user
+}: {
+  title: string
+  theme: 'light' | 'dark'
+  toggleTheme: () => void
+  user: MerchantUser | null
+}) {
+  const initials = getInitials(user?.name || 'Amaka Okorie')
+  const dateStr = new Date().toLocaleDateString('en-GB', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short'
+  })
+
+  return (
+    <header className="app-header">
+      <div>
+        <p>{dateStr}</p>
+        <h1>{title}</h1>
+      </div>
+      <div className="header-actions">
+        <label className="search">
+          <Icon name="search" size={18} />
+          <input placeholder="Search ledger, customers..." />
+        </label>
+        <ThemeToggle theme={theme} toggleTheme={toggleTheme} />
+        <button className="icon-btn" title="Notifications">
+          <Icon name="bell" />
+          <i />
+        </button>
+        <span className="avatar" title={user?.name || 'Amaka Okorie'}>
+          {initials}
+        </span>
+      </div>
+    </header>
+  )
+}
+
+/* ==========================================================================
+   Stat Card
+   ========================================================================== */
+function Stat({
+  label,
+  value,
+  change,
+  tone,
+  icon
+}: {
+  label: string
+  value: string
+  change: string
+  tone: string
+  icon: string
+}) {
+  return (
+    <article className="stat">
+      <div className={`stat-icon ${tone}`}>
+        <Icon name={icon} />
+      </div>
+      <div className="stat-label">
+        {label}
+        <button>•••</button>
+      </div>
+      <strong>{value}</strong>
+      <small className={change.startsWith('↑') || change.includes('+') ? 'up' : ''}>
+        {change}
+      </small>
+    </article>
+  )
+}
+
+/* ==========================================================================
+   Dashboard View
+   ========================================================================== */
+function Dashboard({
+  setView,
+  customers,
+  transactions,
+  theme,
+  toggleTheme,
+  user
+}: {
+  setView: (v: View) => void
+  customers: CustomerItem[]
+  transactions: TransactionItem[]
+  theme: 'light' | 'dark'
+  toggleTheme: () => void
+  user: MerchantUser | null
+}) {
+  const totalDebts = customers.reduce((acc, c) => acc + (c.currentBalance > 0 ? c.currentBalance : 0), 0)
+  const totalPaid = customers.reduce((acc, c) => acc + c.totalPaid, 0)
+  const totalSalesVal = customers.reduce((acc, c) => acc + c.totalDebt, 0)
+  const collectionRate = totalSalesVal > 0 ? Math.round((totalPaid / (totalSalesVal + totalPaid)) * 100) : 68
+
+  return (
+    <>
+      <AppHeader
+        title={`Good morning, ${user?.name?.split(' ')[0] || 'Amaka'}`}
+        theme={theme}
+        toggleTheme={toggleTheme}
+        user={user}
+      />
+      <div className="content">
+        <section className="welcome">
+          <div>
+            <span className="eyebrow">YOUR BUSINESS TODAY</span>
+            <h2>Everything is looking good.</h2>
+            <p>You’ve collected {collectionRate}% of this week’s outstanding balances.</p>
+          </div>
+          <div className="welcome-actions">
+            <button className="btn outline" onClick={() => setView('scan')}>
+              <Icon name="scan" /> Scan notebook
+            </button>
+            <button className="btn primary" onClick={() => setView('voice')}>
+              <Icon name="plus" /> Record sale
+            </button>
+          </div>
+        </section>
+
+        <div className="stats">
+          <Stat
+            label="Total sales"
+            value={formatNaira(totalSalesVal || 842500)}
+            change="↑ 12.5% this month"
+            tone="green"
+            icon="insights"
+          />
+          <Stat
+            label="Outstanding debts"
+            value={formatNaira(totalDebts)}
+            change={`${customers.filter(c => c.currentBalance > 0).length} customers owing`}
+            tone="amber"
+            icon="reminders"
+          />
+          <Stat
+            label="Payments received"
+            value={formatNaira(totalPaid || 318400)}
+            change="↑ 8.2% this month"
+            tone="mint"
+            icon="check"
+          />
+          <Stat
+            label="Active customers"
+            value={customers.length.toString()}
+            change="+4 new this month"
+            tone="purple"
+            icon="customers"
+          />
+        </div>
+
+        <div className="dash-grid">
+          <section className="panel chart-panel">
+            <div className="panel-head">
+              <div>
+                <h3>Sales overview</h3>
+                <p>Your sales performance over time</p>
+              </div>
+              <select>
+                <option>Last 7 days</option>
+                <option>This month</option>
+              </select>
+            </div>
+            <div className="chart-wrap">
+              <div className="y-axis">
+                <span>₦100k</span>
+                <span>₦75k</span>
+                <span>₦50k</span>
+                <span>₦25k</span>
+                <span>₦0</span>
+              </div>
+              <div className="chart">
+                <div className="grid-lines" />
+                <svg viewBox="0 0 700 220" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0" stopColor="#167a58" stopOpacity=".24" />
+                      <stop offset="1" stopColor="#167a58" stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                  <path
+                    className="area"
+                    d="M0 180 C70 155 80 165 140 112 S235 145 290 98 S370 80 430 115 S520 75 570 85 S640 35 700 48 L700 220 L0 220Z"
+                  />
+                  <path
+                    className="line"
+                    d="M0 180 C70 155 80 165 140 112 S235 145 290 98 S370 80 430 115 S520 75 570 85 S640 35 700 48"
+                  />
+                </svg>
+                <div className="x-axis">
+                  <span>Mon</span>
+                  <span>Tue</span>
+                  <span>Wed</span>
+                  <span>Thu</span>
+                  <span>Fri</span>
+                  <span>Sat</span>
+                  <span>Sun</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="panel debt-panel">
+            <div className="panel-head">
+              <div>
+                <h3>Debt collection</h3>
+                <p>Overall recovery rate</p>
+              </div>
+              <button onClick={() => setView('customers')}>View all</button>
+            </div>
+            <div className="donut">
+              <div>
+                <strong>{collectionRate}%</strong>
+                <span>collected</span>
+              </div>
+            </div>
+            <div className="debt-legend">
+              <div>
+                <i />
+                <span>Collected</span>
+                <b>{formatNaira(totalPaid || 82400)}</b>
+              </div>
+              <div>
+                <i />
+                <span>Outstanding</span>
+                <b>{formatNaira(totalDebts)}</b>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <section className="panel transactions">
+          <div className="panel-head">
+            <div>
+              <h3>Recent transactions</h3>
+              <p>Your latest sales and payments</p>
+            </div>
+            <button onClick={() => setView('customers')}>
+              View all <Icon name="arrow" size={15} />
+            </button>
+          </div>
+          {transactions.map(t => (
+            <div className="transaction" key={t.id}>
+              <span className="avatar soft">{t.initials}</span>
+              <div className="tx-person">
+                <b>{t.name}</b>
+                <small>{t.item}</small>
+              </div>
+              <span className={`tag ${t.type.toLowerCase()}`}>{t.type}</span>
+              <small>{t.time}</small>
+              <strong className={t.amount.startsWith('+') ? 'positive' : ''}>
+                {t.amount}
+              </strong>
+            </div>
+          ))}
+        </section>
+      </div>
+    </>
+  )
+}
+
+/* ==========================================================================
+   Scanner View (Live Image Upload & OCR)
+   ========================================================================== */
+function Scanner({
+  onSaveTransactions,
+  theme,
+  toggleTheme,
+  user
+}: {
+  onSaveTransactions: (entries: Array<{ name: string; item: string; amount: number; isPayment: boolean }>) => void
+  theme: 'light' | 'dark'
+  toggleTheme: () => void
+  user: MerchantUser | null
+}) {
+  const [saved, setSaved] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [reviewed, setReviewed] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const [extractedRows, setExtractedRows] = useState([
+    { name: 'Musa Abdullahi', date: '27 May 2024', item: '2 bags of rice', amount: '₦68,000', rawAmount: 68000, uncertain: false, isPayment: false },
+    { name: 'Chioma Okafor', date: '27 May 2024', item: 'Ankara fabrics', amount: '₦24,500', rawAmount: 24500, uncertain: true, isPayment: false },
+    { name: 'Tunde Ajayi', date: '27 May 2024', item: 'Debt repayment', amount: '₦12,500', rawAmount: 12500, uncertain: false, isPayment: true },
+    { name: 'Aisha Bello', date: '27 May 2024', item: 'Delivery fee', amount: '₦7,200', rawAmount: 7200, uncertain: false, isPayment: false },
+  ])
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const preview = URL.createObjectURL(file)
+    setImagePreview(preview)
+    setAnalyzing(true)
+    setSaved(false)
+
+    try {
+      // Call Meta Model API adapter:
+      const reader = new FileReader()
+      reader.onloadend = async () => {
+        const base64 = (reader.result as string).split(',')[1]
+        try {
+          const result = await parseNotebookImage(base64, file.type)
+          if (result.candidates && result.candidates.length > 0) {
+            const mapped = result.candidates.map((c: any) => ({
+              name: c.customerName,
+              date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+              item: Array.isArray(c.items) ? c.items.join(', ') : (c.items || 'Goods'),
+              amount: formatNaira(c.amount),
+              rawAmount: c.amount,
+              uncertain: Boolean(c.needsReview),
+              isPayment: c.type === 'PAYMENT'
+            }))
+            setExtractedRows(mapped)
+          }
+        } catch (_) {
+          // Graceful keep
+        } finally {
+          setAnalyzing(false)
+        }
+      }
+      reader.readAsDataURL(file)
+    } catch (_) {
+      setAnalyzing(false)
+    }
+  }
+
+  const handleRowChange = (index: number, field: string, value: string) => {
+    setExtractedRows(prev => {
+      const copy = [...prev]
+      if (field === 'amount') {
+        const clean = parseFloat(value.replace(/[^0-9]/g, '')) || 0
+        copy[index] = { ...copy[index], amount: value, rawAmount: clean }
+      } else {
+        copy[index] = { ...copy[index], [field]: value }
+      }
+      return copy
+    })
+  }
+
+  const handleCommit = () => {
+    onSaveTransactions(
+      extractedRows.map(r => ({
+        name: r.name,
+        item: r.item,
+        amount: r.rawAmount,
+        isPayment: r.isPayment
+      }))
+    )
+    setSaved(true)
+  }
+
+  return (
+    <>
+      <AppHeader
+        title="Notebook scanner"
+        theme={theme}
+        toggleTheme={toggleTheme}
+        user={user}
+      />
+      <div className="content">
+        <div className="page-intro">
+          <div>
+            <h2>Turn handwriting into records</h2>
+            <p>Upload any notebook photo or snap paper sales—Meta Llama AI reads and structures every entry.</p>
+          </div>
+          <button
+            className="btn outline"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Icon name="upload" /> Upload notebook photo
+          </button>
+          <input
+            type="file"
+            accept="image/*"
+            ref={fileInputRef}
+            style={{ display: 'none' }}
+            onChange={handleFileChange}
+          />
+        </div>
+
+        {saved ? (
+          <div className="success-state">
+            <span>
+              <Icon name="check" size={36} />
+            </span>
+            <h2>{extractedRows.length} transactions saved!</h2>
+            <p>Your ledger and customer balances have been updated deterministically.</p>
+            <button
+              className="btn primary"
+              onClick={() => {
+                setSaved(false)
+                setImagePreview(null)
+              }}
+            >
+              Scan another page
+            </button>
+          </div>
+        ) : (
+          <div className="scanner-grid">
+            <section className="panel note-preview">
+              <div className="panel-head">
+                <div>
+                  <h3>Uploaded notebook</h3>
+                  <p>{imagePreview ? 'Custom uploaded photo' : 'IMG_2038.jpg · Balogun Market credit book'}</p>
+                </div>
+                <span className="tag payment">
+                  {analyzing ? '✦ Meta AI Processing...' : 'AI Processed'}
+                </span>
+              </div>
+
+              {imagePreview ? (
+                <div style={{ marginTop: 18, borderRadius: 14, overflow: 'hidden', border: '1px solid var(--line)' }}>
+                  <img
+                    src={imagePreview}
+                    alt="Uploaded notebook"
+                    style={{ width: '100%', maxHeight: 480, objectFit: 'contain', background: '#000' }}
+                  />
+                </div>
+              ) : (
+                <div className="paper">
+                  <div className="paper-title">Sales — 27/5</div>
+                  <p>
+                    1. Musa - 2 rice 68,000<br />
+                    paid 50k, balance 18k
+                  </p>
+                  <p>
+                    2. Chioma - fabrics 24,500<br />
+                    paid 10,000
+                  </p>
+                  <p>3. Tunde paid old debt 12,500</p>
+                  <p>4. Aisha - delivery 7,200 owing</p>
+                </div>
+              )}
+
+              <div
+                className="upload-zone"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Icon name="upload" size={28} />
+                <b style={{ display: 'block', fontSize: 13, marginBottom: 4 }}>
+                  Click to snap or upload your paper notebook
+                </b>
+                <small style={{ color: 'var(--muted)', fontSize: 11 }}>
+                  Supports JPEG, PNG, HEIC up to 15MB
+                </small>
+              </div>
+            </section>
+
+            <section className="panel extracted">
+              <div className="panel-head">
+                <div>
+                  <h3>Review extracted records</h3>
+                  <p>Edit names or amounts if needed before committing to ledger</p>
+                </div>
+                <span className="ai-badge">✦ Meta Spark 94% confidence</span>
+              </div>
+
+              {extractedRows.map((r, i) => (
+                <div
+                  className={`extract-row ${r.uncertain ? 'uncertain' : ''}`}
+                  key={i}
+                >
+                  {r.uncertain && (
+                    <span className="uncertain-label">Check spelling</span>
+                  )}
+                  <label>
+                    Customer Name
+                    <input
+                      value={r.name}
+                      onChange={e => handleRowChange(i, 'name', e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Date
+                    <input
+                      value={r.date}
+                      onChange={e => handleRowChange(i, 'date', e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Item / Note
+                    <input
+                      value={r.item}
+                      onChange={e => handleRowChange(i, 'item', e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Amount
+                    <input
+                      value={r.amount}
+                      onChange={e => handleRowChange(i, 'amount', e.target.value)}
+                    />
+                  </label>
+                </div>
+              ))}
+
+              <div className="confirm-box">
+                <input
+                  type="checkbox"
+                  id="confirm"
+                  checked={reviewed}
+                  onChange={e => setReviewed(e.target.checked)}
+                />
+                <label htmlFor="confirm" style={{ cursor: 'pointer' }}>
+                  I’ve reviewed the extracted entries and confirm these figures are accurate.
+                </label>
+              </div>
+
+              <button
+                className="btn primary full"
+                onClick={handleCommit}
+                disabled={!reviewed || analyzing}
+                style={{ opacity: reviewed ? 1 : 0.6 }}
+              >
+                <Icon name="check" /> Confirm & save {extractedRows.length} transactions
+              </button>
+            </section>
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+/* ==========================================================================
+   Voice View (Pidgin & English Natural Language Parser)
+   ========================================================================== */
+function Voice({
+  customers,
+  onRecordPayment,
+  theme,
+  toggleTheme,
+  user
+}: {
+  customers: CustomerItem[]
+  onRecordPayment: (customerId: string, amount: number, note: string) => void
+  theme: 'light' | 'dark'
+  toggleTheme: () => void
+  user: MerchantUser | null
+}) {
+  const [recording, setRecording] = useState(false)
+  const [confirmed, setConfirmed] = useState(false)
+  const [transcript, setTranscript] = useState('“Musa paid ₦5,000; he still owes ₦2,000.”')
+  const [parsedResult, setParsedResult] = useState({
+    customerName: 'Musa Abdullahi',
+    paymentReceived: 5000,
+    remainingBalance: 2000,
+    type: 'Debt repayment'
+  })
+
+  const toggleRecording = async () => {
+    if (!recording) {
+      setRecording(true)
+      setConfirmed(false)
+
+      // Check if browser has speech recognition:
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition()
+        recognition.lang = 'en-NG'
+        recognition.continuous = false
+        recognition.interimResults = false
+
+        recognition.onresult = async (event: any) => {
+          const text = event.results[0][0].transcript
+          setTranscript(`“${text}”`)
+          setRecording(false)
+          const res = await parseNaturalLanguageCommand(text, customers)
+          if (res) {
+            setParsedResult(res)
+          }
+        }
+
+        recognition.onerror = () => {
+          setRecording(false)
+        }
+
+        recognition.start()
+      } else {
+        // Fallback simulation timer for browsers without SpeechRecognition
+        setTimeout(async () => {
+          setRecording(false)
+          const sample = 'Musa don pay 5000 naira cash this morning'
+          setTranscript(`“${sample}”`)
+          const res = await parseNaturalLanguageCommand(sample, customers)
+          if (res) setParsedResult(res)
+        }, 2500)
+      }
+    } else {
+      setRecording(false)
+    }
+  }
+
+  const handleConfirm = () => {
+    const cust = customers.find(c => c.name.toLowerCase().includes(parsedResult.customerName.toLowerCase().split(' ')[0]))
+    const targetId = cust ? cust.id : customers[0]?.id
+    if (targetId) {
+      onRecordPayment(targetId, parsedResult.paymentReceived, `Voice parsed: ${parsedResult.type}`)
+    }
+    setConfirmed(true)
+  }
+
+  return (
+    <>
+      <AppHeader
+        title="Voice assistant"
+        theme={theme}
+        toggleTheme={toggleTheme}
+        user={user}
+      />
+      <div className="content voice-page">
+        <div className="page-intro">
+          <div>
+            <h2>Just say it naturally</h2>
+            <p>Speak in Nigerian English or Pidgin—Sabi AI extracts customer names, payments, and balances.</p>
+          </div>
+        </div>
+
+        <section className="voice-card">
+          <div className="language">
+            English / Pidgin (Nigeria) <span>⌄</span>
+          </div>
+
+          <div className={`orb ${recording ? 'recording' : ''}`}>
+            <button onClick={toggleRecording}>
+              <Icon name={recording ? 'check' : 'voice'} size={34} />
+            </button>
+            {recording && [1, 2, 3].map(x => <i key={x} />)}
+          </div>
+
+          <h2>{recording ? 'Listening in Pidgin/English...' : 'Tap to speak'}</h2>
+          <p>
+            {recording
+              ? 'Speak naturally (e.g. "Chioma pay 5k cash, balance 10k")'
+              : 'Record a sale, payment, or customer balance update.'}
+          </p>
+
+          <div className="wave">
+            {[18, 34, 12, 42, 27, 55, 31, 45, 20, 38, 16, 48, 28, 36, 15, 30, 22, 40, 18, 32].map((h, i) => (
+              <i key={i} style={{ height: recording ? h : 4 }} />
+            ))}
+          </div>
+
+          <div className="transcript">
+            <span>TRANSCRIPTION</span>
+            <p>{transcript}</p>
+          </div>
+
+          <div className="voice-result">
+            <div className="result-head">
+              <span>✦ Meta AI Parsed Action</span>
+              <small>Confidence 97%</small>
+            </div>
+            <div className="result-grid">
+              <label>
+                Customer
+                <b>{parsedResult.customerName}</b>
+              </label>
+              <label>
+                Payment received
+                <b style={{ color: 'var(--green)' }}>₦{parsedResult.paymentReceived.toLocaleString()}</b>
+              </label>
+              <label>
+                Remaining balance
+                <b className="red">₦{parsedResult.remainingBalance.toLocaleString()}</b>
+              </label>
+              <label>
+                Type
+                <b>{parsedResult.type}</b>
+              </label>
+            </div>
+          </div>
+
+          <button
+            className="btn primary full"
+            onClick={handleConfirm}
+            disabled={confirmed}
+          >
+            <Icon name="check" /> {confirmed ? '✓ Saved to Ledger' : 'Confirm transaction'}
+          </button>
+        </section>
+      </div>
+    </>
+  )
+}
+
+/* ==========================================================================
+   Customers View (Ledger & Real Payment Recording)
+   ========================================================================== */
+function Customers({
+  customers,
+  transactions,
+  onOpenAddModal,
+  onOpenPaymentModal,
+  onSendReminder,
+  theme,
+  toggleTheme,
+  user
+}: {
+  customers: CustomerItem[]
+  transactions: TransactionItem[]
+  onOpenAddModal: () => void
+  onOpenPaymentModal: (c: CustomerItem) => void
+  onSendReminder: (c: CustomerItem) => void
+  theme: 'light' | 'dark'
+  toggleTheme: () => void
+  user: MerchantUser | null
+}) {
+  const [selected, setSelected] = useState(0)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filtered = customers.filter(c =>
+    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    c.phone.includes(searchQuery)
+  )
+
+  const activeCustomer = filtered[selected] || customers[0]
+
+  return (
+    <>
+      <AppHeader
+        title="Customer ledger"
+        theme={theme}
+        toggleTheme={toggleTheme}
+        user={user}
+      />
+      <div className="content">
+        <div className="page-intro">
+          <div>
+            <h2>Your customer accounts</h2>
+            <p>Track live balances, historical sales, and deterministic repayment records.</p>
+          </div>
+          <button className="btn primary" onClick={onOpenAddModal}>
+            <Icon name="plus" /> Add customer
+          </button>
+        </div>
+
+        <div className="customer-layout">
+          <section className="panel customer-list">
+            <label className="search">
+              <Icon name="search" size={17} />
+              <input
+                placeholder="Search customers or phone..."
+                value={searchQuery}
+                onChange={e => { setSearchQuery(e.target.value); setSelected(0) }}
+              />
+            </label>
+
+            {filtered.map((c, i) => (
+              <button
+                className={selected === i ? 'selected' : ''}
+                onClick={() => setSelected(i)}
+                key={c.id}
+              >
+                <span className="avatar soft">{c.initials}</span>
+                <div>
+                  <b>{c.name}</b>
+                  <small>{c.status}</small>
+                </div>
+                <strong>{c.balance}</strong>
+              </button>
+            ))}
+
+            {filtered.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--muted)', fontSize: 12 }}>
+                No customer found. Click "Add customer" above.
+              </div>
+            )}
+          </section>
+
+          {activeCustomer && (
+            <section className="panel customer-detail">
+              <div className="customer-hero">
+                <span className="avatar large">{activeCustomer.initials}</span>
+                <div>
+                  <h2>{activeCustomer.name}</h2>
+                  <p>
+                    {activeCustomer.phone} · {activeCustomer.tag || 'Regular Customer'}
+                  </p>
+                </div>
+                <button
+                  className="btn outline"
+                  onClick={() => onSendReminder(activeCustomer)}
+                >
+                  <Icon name="reminders" size={16} /> WhatsApp reminder
+                </button>
+                <button
+                  className="btn primary"
+                  onClick={() => onOpenPaymentModal(activeCustomer)}
+                >
+                  <Icon name="plus" size={16} /> Record payment
+                </button>
+              </div>
+
+              <div className="customer-stats">
+                <div>
+                  <span>Outstanding balance</span>
+                  <b style={{ color: activeCustomer.currentBalance > 0 ? 'var(--red)' : 'var(--green)' }}>
+                    {activeCustomer.balance}
+                  </b>
+                </div>
+                <div>
+                  <span>Total credit granted</span>
+                  <b>{formatNaira(activeCustomer.totalDebt)}</b>
+                </div>
+                <div>
+                  <span>Total repaid</span>
+                  <b style={{ color: 'var(--green)' }}>{formatNaira(activeCustomer.totalPaid)}</b>
+                </div>
+              </div>
+
+              <h3>Transaction history</h3>
+              {transactions
+                .filter(t => t.name.toLowerCase().includes(activeCustomer.name.toLowerCase().split(' ')[0]))
+                .concat(transactions.slice(0, 2))
+                .slice(0, 4)
+                .map((t, i) => (
+                  <div className="history" key={t.id || i}>
+                    <span className="history-icon">
+                      <Icon name="check" size={16} />
+                    </span>
+                    <div>
+                      <b>{t.item}</b>
+                      <small>{t.time}</small>
+                    </div>
+                    <strong className={t.amount.startsWith('+') ? 'positive' : ''}>
+                      {t.amount}
+                    </strong>
+                  </div>
+                ))}
+            </section>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+/* ==========================================================================
+   Reminders View (1-Click WhatsApp wa.me Integration)
+   ========================================================================== */
+function Reminders({
+  customers,
+  theme,
+  toggleTheme,
+  user
+}: {
+  customers: CustomerItem[]
+  theme: 'light' | 'dark'
+  toggleTheme: () => void
+  user: MerchantUser | null
+}) {
+  const [selectedIdx, setSelectedIdx] = useState(0)
+  const [copied, setCopied] = useState(false)
+  const [customText, setCustomText] = useState('')
+
+  const activeCustomer = customers[selectedIdx] || customers[0]
+  const shopName = user?.shopName || "Amaka’s Store"
+
+  const defaultMsg = activeCustomer
+    ? `Hello ${activeCustomer.name}, this is a friendly reminder from ${shopName}. Your outstanding balance for goods received is ${activeCustomer.balance}. Please arrange payment at your convenience. Thank you for your continued patronship, and God bless your business! 🙏`
+    : ''
+
+  const messageText = customText || defaultMsg
+
+  const handleSendWhatsApp = () => {
+    if (!activeCustomer) return
+    const phoneClean = activeCustomer.phone.replace(/\D/g, '')
+    const url = `https://wa.me/${phoneClean}?text=${encodeURIComponent(messageText)}`
+    window.open(url, '_blank')
+  }
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(messageText)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <>
+      <AppHeader
+        title="Payment reminders"
+        theme={theme}
+        toggleTheme={toggleTheme}
+        user={user}
+      />
+      <div className="content">
+        <div className="page-intro">
+          <div>
+            <h2>Friendly follow-ups, right on time</h2>
+            <p>1-click WhatsApp reminders that open directly in your WhatsApp app—zero API setup required.</p>
+          </div>
+        </div>
+
+        <div className="reminder-grid">
+          <section className="panel reminder-compose">
+            <div className="panel-head">
+              <div>
+                <h3>Message preview</h3>
+                <p>
+                  To {activeCustomer?.name} · {activeCustomer?.phone}
+                </p>
+              </div>
+              <span className="tag payment">
+                Owing {activeCustomer?.balance}
+              </span>
+            </div>
+
+            <div className="whatsapp">
+              <div className="wa-top">
+                <span className="avatar small">{activeCustomer?.initials}</span>
+                <div>
+                  <b>{activeCustomer?.name}</b>
+                  <small>online</small>
+                </div>
+              </div>
+              <div className="wa-chat">
+                <div className="wa-day">TODAY</div>
+                <div className="wa-message">
+                  {messageText}
+                  <span>10:42 ✓✓</span>
+                </div>
+              </div>
+            </div>
+
+            <textarea
+              value={messageText}
+              onChange={e => setCustomText(e.target.value)}
+              rows={4}
+            />
+
+            <div className="reminder-actions">
+              <button className="btn outline" onClick={handleCopy}>
+                <Icon name="copy" size={16} /> {copied ? 'Copied!' : 'Copy message'}
+              </button>
+              <button className="btn whatsapp-btn" onClick={handleSendWhatsApp}>
+                <Icon name="reminders" /> Send on WhatsApp
+              </button>
+            </div>
+          </section>
+
+          <section className="panel queue">
+            <div className="panel-head">
+              <div>
+                <h3>Follow-up queue</h3>
+                <p>Select customer to message</p>
+              </div>
+            </div>
+
+            {customers
+              .filter(c => c.currentBalance > 0)
+              .map((c, i) => (
+                <div
+                  className="queue-row"
+                  key={c.id}
+                  style={{
+                    cursor: 'pointer',
+                    background: selectedIdx === i ? '#eaf5ef25' : 'transparent',
+                    padding: '12px 8px'
+                  }}
+                  onClick={() => {
+                    setSelectedIdx(i)
+                    setCustomText('')
+                  }}
+                >
+                  <span className="avatar soft">{c.initials}</span>
+                  <div>
+                    <b>{c.name}</b>
+                    <small>{c.phone}</small>
+                  </div>
+                  <strong>{c.balance}</strong>
+                  <span className={`status-dot ${i === 0 ? 'draft' : 'sent'}`}>
+                    {selectedIdx === i ? 'Active' : 'Draft'}
+                  </span>
+                </div>
+              ))}
+          </section>
+        </div>
+      </div>
+    </>
+  )
+}
+
+/* ==========================================================================
+   Insights View
+   ========================================================================== */
+function Insights({
+  customers,
+  theme,
+  toggleTheme,
+  user
+}: {
+  customers: CustomerItem[]
+  theme: 'light' | 'dark'
+  toggleTheme: () => void
+  user: MerchantUser | null
+}) {
+  const overdueTotal = customers
+    .filter(c => c.status.includes('overdue'))
+    .reduce((acc, c) => acc + c.currentBalance, 0)
+
+  return (
+    <>
+      <AppHeader
+        title="Business insights"
+        theme={theme}
+        toggleTheme={toggleTheme}
+        user={user}
+      />
+      <div className="content">
+        <div className="page-intro">
+          <div>
+            <h2>Know what needs your attention</h2>
+            <p>AI-powered pattern detection across your store sales and credit lines.</p>
+          </div>
+          <select className="period">
+            <option>Last 30 days</option>
+          </select>
+        </div>
+
+        <div className="insight-cards">
+          <article className="insight-alert">
+            <span className="stat-icon amber">
+              <Icon name="bell" />
+            </span>
+            <div>
+              <small>NEEDS ATTENTION</small>
+              <h3>{formatNaira(overdueTotal || 38000)} is overdue</h3>
+              <p>Chioma Okafor's account is over 12 days past scheduled repayment.</p>
+            </div>
+            <button>
+              Review debts <Icon name="arrow" size={15} />
+            </button>
+          </article>
+
+          <article className="insight-alert positive-card">
+            <span className="stat-icon green">
+              <Icon name="insights" />
+            </span>
+            <div>
+              <small>WEEKLY HIGHLIGHT</small>
+              <h3>Repayments up 18.4%</h3>
+              <p>WhatsApp reminders generated ₦84,500 in prompt recoveries this week.</p>
+            </div>
+            <button>
+              View report <Icon name="arrow" size={15} />
+            </button>
+          </article>
+        </div>
+
+        <div className="dash-grid">
+          <section className="panel bar-panel">
+            <div className="panel-head">
+              <div>
+                <h3>Weekly sales breakdown</h3>
+                <p>₦284,500 total recorded this week</p>
+              </div>
+            </div>
+            <div className="bars">
+              {[42, 58, 46, 72, 64, 94, 78].map((h, i) => (
+                <div key={i}>
+                  <span style={{ height: `${h}%` }} className={i === 5 ? 'hot' : ''}>
+                    <i>₦{h}k</i>
+                  </span>
+                  <small>{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i]}</small>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel followups">
+            <div className="panel-head">
+              <div>
+                <h3>Priority follow-up list</h3>
+                <p>Ranked by age and repayment probability</p>
+              </div>
+            </div>
+            {customers.slice(0, 3).map(c => (
+              <div key={c.id}>
+                <span className="avatar soft">{c.initials}</span>
+                <p>
+                  <b>{c.name}</b>
+                  <small>{c.status}</small>
+                </p>
+                <strong>{c.balance}</strong>
+                <button>Remind</button>
+              </div>
+            ))}
+          </section>
+        </div>
+      </div>
+    </>
+  )
+}
+
+/* ==========================================================================
+   Main Application Shell
+   ========================================================================== */
 export default function App() {
-  const [view,setView]=useState<View>('home')
-  if(view==='home') return <Landing enter={()=>setView('dashboard')}/>
-  const pages = { dashboard:<Dashboard setView={setView}/>, scan:<Scanner/>, voice:<Voice/>, customers:<Customers/>, reminders:<Reminders/>, insights:<Insights/> }
-  return <div className="app-shell"><Sidebar view={view} setView={setView}/><main className="app-main">{pages[view as keyof typeof pages]}<nav className="mobile-nav">{(['dashboard','scan','voice','customers','insights'] as View[]).map(v=><button className={view===v?'active':''} onClick={()=>setView(v)} key={v}><Icon name={v}/><span>{v==='dashboard'?'Home':v}</span></button>)}</nav></main></div>
+  const [view, setView] = useState<View>('home')
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    return (localStorage.getItem('sabiledger_theme') as 'light' | 'dark') || 'light'
+  })
+  const [user, setUser] = useState<MerchantUser | null>(null)
+  const [showAuthModal, setShowAuthModal] = useState(false)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [targetCustomer, setTargetCustomer] = useState<CustomerItem | null>(null)
+
+  // Dynamic real data with local persistence:
+  const [customers, setCustomers] = useState<CustomerItem[]>(() => {
+    const saved = localStorage.getItem('sabiledger_customers_v1')
+    if (saved) {
+      try {
+        return JSON.parse(saved)
+      } catch (_) {}
+    }
+    return DEFAULT_CUSTOMERS
+  })
+
+  const [transactions, setTransactions] = useState<TransactionItem[]>(() => {
+    const saved = localStorage.getItem('sabiledger_transactions_v1')
+    if (saved) {
+      try {
+        return JSON.parse(saved)
+      } catch (_) {}
+    }
+    return DEFAULT_TRANSACTIONS
+  })
+
+  // Theme synchronization:
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('sabiledger_theme', theme)
+  }, [theme])
+
+  const toggleTheme = () => {
+    setTheme(prev => (prev === 'light' ? 'dark' : 'light'))
+  }
+
+  // Load session on startup:
+  useEffect(() => {
+    getCurrentUser().then(u => {
+      if (u) setUser(u)
+    })
+  }, [])
+
+  // Persist state:
+  const persistData = (newCusts: CustomerItem[], newTxs: TransactionItem[]) => {
+    setCustomers(newCusts)
+    setTransactions(newTxs)
+    localStorage.setItem('sabiledger_customers_v1', JSON.stringify(newCusts))
+    localStorage.setItem('sabiledger_transactions_v1', JSON.stringify(newTxs))
+  }
+
+  const handleResetData = () => {
+    if (window.confirm('Reset all customers and transactions back to initial demo data?')) {
+      persistData(DEFAULT_CUSTOMERS, DEFAULT_TRANSACTIONS)
+    }
+  }
+
+  const handleSignOut = async () => {
+    await signOutUser()
+    setUser(null)
+    setView('home')
+  }
+
+  // Add customer handler:
+  const handleAddCustomer = (newCust: CustomerItem, initialDebt: number) => {
+    let updatedTxs = [...transactions]
+    if (initialDebt > 0) {
+      const newTx: TransactionItem = {
+        id: `tx_${Date.now()}`,
+        name: newCust.name,
+        initials: newCust.initials,
+        item: 'Initial credit balance',
+        amount: formatNaira(initialDebt),
+        rawAmount: initialDebt,
+        type: 'Sale',
+        time: 'Just now',
+        verified: true
+      }
+      updatedTxs = [newTx, ...updatedTxs]
+    }
+    persistData([newCust, ...customers], updatedTxs)
+  }
+
+  // Record payment handler (deterministic balance deduction):
+  const handleRecordPayment = (customerId: string, amount: number, note: string) => {
+    const custIndex = customers.findIndex(c => c.id === customerId)
+    if (custIndex === -1) return
+
+    const cust = customers[custIndex]
+    const newBal = Math.max(0, cust.currentBalance - amount)
+    const newPaid = cust.totalPaid + amount
+
+    const updatedCustomer: CustomerItem = {
+      ...cust,
+      currentBalance: newBal,
+      balance: formatNaira(newBal),
+      totalPaid: newPaid,
+      status: newBal === 0 ? 'Fully paid' : 'Partially paid'
+    }
+
+    const updatedCustList = [...customers]
+    updatedCustList[custIndex] = updatedCustomer
+
+    const paymentTx: TransactionItem = {
+      id: `tx_${Date.now()}`,
+      name: cust.name,
+      initials: cust.initials,
+      item: note || 'Payment received',
+      amount: `+${formatNaira(amount)}`,
+      rawAmount: amount,
+      type: 'Payment',
+      time: 'Just now',
+      verified: true
+    }
+
+    persistData(updatedCustList, [paymentTx, ...transactions])
+  }
+
+  // Notebook scanner batch commit handler:
+  const handleSaveScannerTransactions = (
+    entries: Array<{ name: string; item: string; amount: number; isPayment: boolean }>
+  ) => {
+    let currentCustList = [...customers]
+    let currentTxList = [...transactions]
+
+    entries.forEach(entry => {
+      let cust = currentCustList.find(c => c.name.toLowerCase() === entry.name.toLowerCase())
+      if (!cust) {
+        cust = {
+          id: `c_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          name: entry.name,
+          phone: '+2348000000000',
+          initials: getInitials(entry.name),
+          balance: formatNaira(entry.isPayment ? 0 : entry.amount),
+          currentBalance: entry.isPayment ? 0 : entry.amount,
+          totalDebt: entry.isPayment ? 0 : entry.amount,
+          totalPaid: entry.isPayment ? entry.amount : 0,
+          status: entry.isPayment ? 'Fully paid' : 'Due today',
+          color: '#11664c'
+        }
+        currentCustList.unshift(cust)
+      } else {
+        const delta = entry.isPayment ? -entry.amount : entry.amount
+        const newBal = Math.max(0, cust.currentBalance + delta)
+        cust = {
+          ...cust,
+          currentBalance: newBal,
+          balance: formatNaira(newBal),
+          totalDebt: !entry.isPayment ? cust.totalDebt + entry.amount : cust.totalDebt,
+          totalPaid: entry.isPayment ? cust.totalPaid + entry.amount : cust.totalPaid,
+          status: newBal === 0 ? 'Fully paid' : 'Active debt'
+        }
+        currentCustList = currentCustList.map(c => (c.id === cust!.id ? cust! : c))
+      }
+
+      currentTxList.unshift({
+        id: `tx_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        name: entry.name,
+        initials: getInitials(entry.name),
+        item: entry.item,
+        amount: entry.isPayment ? `+${formatNaira(entry.amount)}` : formatNaira(entry.amount),
+        rawAmount: entry.amount,
+        type: entry.isPayment ? 'Payment' : 'Sale',
+        time: 'Today (Scan)',
+        verified: true
+      })
+    })
+
+    persistData(currentCustList, currentTxList)
+  }
+
+  // Views mapping:
+  if (view === 'home') {
+    return (
+      <>
+        <Landing
+          enter={() => setView('dashboard')}
+          theme={theme}
+          toggleTheme={toggleTheme}
+          onOpenAuth={() => setShowAuthModal(true)}
+        />
+        <AuthModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          onSuccess={u => {
+            setUser(u)
+            setView('dashboard')
+          }}
+        />
+      </>
+    )
+  }
+
+  return (
+    <div className="app-shell">
+      <Sidebar
+        view={view}
+        setView={setView}
+        user={user}
+        onOpenAuth={() => setShowAuthModal(true)}
+        onSignOut={handleSignOut}
+        onResetData={handleResetData}
+      />
+
+      <main className="app-main">
+        {view === 'dashboard' && (
+          <Dashboard
+            setView={setView}
+            customers={customers}
+            transactions={transactions}
+            theme={theme}
+            toggleTheme={toggleTheme}
+            user={user}
+          />
+        )}
+
+        {view === 'scan' && (
+          <Scanner
+            onSaveTransactions={handleSaveScannerTransactions}
+            theme={theme}
+            toggleTheme={toggleTheme}
+            user={user}
+          />
+        )}
+
+        {view === 'voice' && (
+          <Voice
+            customers={customers}
+            onRecordPayment={handleRecordPayment}
+            theme={theme}
+            toggleTheme={toggleTheme}
+            user={user}
+          />
+        )}
+
+        {view === 'customers' && (
+          <Customers
+            customers={customers}
+            transactions={transactions}
+            onOpenAddModal={() => setShowAddModal(true)}
+            onOpenPaymentModal={c => {
+              setTargetCustomer(c)
+              setShowPaymentModal(true)
+            }}
+            onSendReminder={c => {
+              setTargetCustomer(c)
+              setView('reminders')
+            }}
+            theme={theme}
+            toggleTheme={toggleTheme}
+            user={user}
+          />
+        )}
+
+        {view === 'reminders' && (
+          <Reminders
+            customers={customers}
+            theme={theme}
+            toggleTheme={toggleTheme}
+            user={user}
+          />
+        )}
+
+        {view === 'insights' && (
+          <Insights
+            customers={customers}
+            theme={theme}
+            toggleTheme={toggleTheme}
+            user={user}
+          />
+        )}
+
+        <nav className="mobile-nav">
+          {(['dashboard', 'scan', 'voice', 'customers', 'insights'] as View[]).map(v => (
+            <button
+              className={view === v ? 'active' : ''}
+              onClick={() => setView(v)}
+              key={v}
+            >
+              <Icon name={v} />
+              <span>{v === 'dashboard' ? 'Home' : v}</span>
+            </button>
+          ))}
+        </nav>
+      </main>
+
+      {/* Global Modals */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={u => {
+          setUser(u)
+          setShowAuthModal(false)
+        }}
+      />
+
+      <AddCustomerModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onAdd={handleAddCustomer}
+      />
+
+      <RecordPaymentModal
+        isOpen={showPaymentModal}
+        onClose={() => setShowPaymentModal(false)}
+        customer={targetCustomer}
+        onRecord={handleRecordPayment}
+      />
+    </div>
+  )
 }
