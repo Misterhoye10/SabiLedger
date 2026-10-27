@@ -1,7 +1,15 @@
 {
+  "title": "SabiLedger — Multimodal AI Business Ledger",
   "description": "Manage sales, customer debts, and payments with AI-powered notebook scanning and voice entry, built for informal merchants and WhatsApp sellers.",
+  "language": "en",
+  "icons": {
+    "icon": "/favicon.svg"
+  },
+  "openGraph": {
+    "image": "/SabiLedger_ Smart Business, Simplified-1.png"
+  },
   "robots": {
-    "index": false
+    "index": true
   },
   "accessibility": {
     "addBypassLinks": false,
