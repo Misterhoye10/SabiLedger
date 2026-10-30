@@ -153,6 +153,23 @@ export async function signInWithEmail(
     return { user: null, error: { message: 'Email and password are required.' } };
   }
 
+  // Universal Demo Credentials for DemoVisor, Judges & Evaluators
+  const isDemoEmail =
+    cleanEmail === 'demo@sabiledger.com' ||
+    cleanEmail === 'demo@balogunledger.ng' ||
+    cleanEmail === 'judge@meta.com' ||
+    cleanEmail.startsWith('demo');
+  const isDemoPass =
+    pass === 'password123' ||
+    pass === 'demo123456' ||
+    pass === 'demo' ||
+    pass === 'password';
+
+  if (isDemoEmail && isDemoPass) {
+    const demo = loginAsDemo();
+    return { user: demo, error: null };
+  }
+
   if (supabase) {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -207,7 +224,7 @@ export function loginAsDemo(): MerchantUser {
   const demoUser: MerchantUser = {
     id: 'usr_demo_balogun',
     name: 'Balogun Demo Merchant',
-    email: 'demo@balogunledger.ng',
+    email: 'demo@sabiledger.com',
     shopName: 'Balogun Market Sample Store (Demo)',
     phone: '+2348035550142',
     isDemo: true

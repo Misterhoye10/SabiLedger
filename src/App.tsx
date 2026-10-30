@@ -264,6 +264,19 @@ function AuthModal({
         <div className="auth-divider">OR USE EMAIL & PASSWORD</div>
 
         <form onSubmit={handleSubmit}>
+          {tab === 'signin' && (
+            <div style={{ background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 11, color: 'var(--green)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>💡 <b>Demo login:</b> demo@sabiledger.com / password123</span>
+              <button
+                type="button"
+                onClick={() => { setEmail('demo@sabiledger.com'); setPassword('password123'); }}
+                style={{ background: 'none', border: 'none', color: 'var(--green)', textDecoration: 'underline', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
+              >
+                Auto-fill
+              </button>
+            </div>
+          )}
+
           {tab === 'signup' && (
             <>
               <div className="form-group">
@@ -304,7 +317,7 @@ function AuthModal({
             <input
               type="email"
               className="form-input"
-              placeholder="merchant@yourstore.ng"
+              placeholder={tab === 'signin' ? 'demo@sabiledger.com' : 'merchant@yourstore.ng'}
               value={email}
               onChange={e => setEmail(e.target.value)}
               required
@@ -316,7 +329,7 @@ function AuthModal({
             <input
               type="password"
               className="form-input"
-              placeholder="••••••••"
+              placeholder={tab === 'signin' ? 'password123' : '••••••••'}
               value={password}
               onChange={e => setPassword(e.target.value)}
               required
